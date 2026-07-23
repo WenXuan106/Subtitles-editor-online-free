@@ -155,10 +155,14 @@
     background:var(--panel-2); color:var(--text); border:1px solid var(--line); border-radius:4px;
     padding:3px 5px; font-size:11.5px; flex:1; min-width:0;
   }
+  .styleCard select.sfont{flex:1 1 100%; min-width:0;}
   .styleCard input[type=color]{width:26px; height:24px; padding:2px; border:1px solid var(--line); border-radius:4px; cursor:pointer; background:none;}
   .styleCard label.chk{color:var(--dim); font-size:11px; display:flex; align-items:center; gap:4px; white-space:nowrap;}
+  .styleCard label.fieldlbl{color:var(--dim); font-size:10.5px; display:flex; flex-direction:column; gap:2px; flex:1; min-width:0;}
   .styleCard .delStyle{margin-left:auto; color:var(--dim); cursor:pointer; font-size:11px;}
   .styleCard .delStyle:hover{color:var(--red);}
+  select{background:var(--panel-2); color:var(--text);}
+  select optgroup{color:var(--dim); font-style:normal;}
   #addStyleBtn{margin:8px 12px;}
   #zoomRow{display:flex; align-items:center; gap:4px; padding:6px 10px; border-top:1px solid var(--line);}
   #zoomRow span{color:var(--dim); font-size:11px;}
@@ -170,6 +174,7 @@
   <div class="brand">SUBTRACK <span>web subtitle editor</span></div>
   <label class="file-btn">Open Video/Audio<input type="file" id="mediaInput" accept="video/*,audio/*"></label>
   <label class="file-btn">Import .ass/.srt<input type="file" id="subInput" accept=".ass,.ssa,.srt"></label>
+  <label class="file-btn">Import Font<input type="file" id="fontInput" accept=".ttf,.otf,.woff,.woff2,.ttc" multiple></label>
   <div class="sep"></div>
   <button id="exportSrt">Export .srt</button>
   <button id="exportAss">Export .ass</button>
@@ -220,14 +225,34 @@
           <select id="lineStyleSel"></select>
         </label>
         <label><input type="checkbox" id="overrideChk"> Override style</label>
-        <label>Font <input type="text" id="ovFont" style="width:110px" placeholder="Arial"></label>
-        <label>Size <input type="number" id="ovSize" style="width:52px" value="28"></label>
-        <label>Color <input type="color" id="ovColor" value="#ffffff"></label>
-        <label><input type="checkbox" id="ovBold">B</label>
-        <label><input type="checkbox" id="ovItalic">I</label>
         <div class="sep"></div>
         <button id="dupLineBtn">Duplicate</button>
         <button id="delLineBtn">Delete line</button>
+      </div>
+      <div class="row">
+        <label>Font <select id="ovFont" style="width:140px"></select></label>
+        <label>Size <input type="number" id="ovSize" style="width:52px" value="28"></label>
+        <label>Weight
+          <select id="ovWeight" style="width:66px">
+            <option value="300">Light</option>
+            <option value="400" selected>Regular</option>
+            <option value="500">Medium</option>
+            <option value="600">Semibold</option>
+            <option value="700">Bold</option>
+            <option value="800">Extrabold</option>
+            <option value="900">Black</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="ovItalic">Italic</label>
+        <label>Spacing <input type="number" id="ovSpacing" style="width:46px" value="0" step="0.5"></label>
+        <label>Case
+          <select id="ovTransform" style="width:78px">
+            <option value="none">Normal</option>
+            <option value="uppercase">UPPER</option>
+            <option value="capitalize">Capitalize</option>
+          </select>
+        </label>
+        <label>Color <input type="color" id="ovColor" value="#ffffff"></label>
       </div>
     </div>
   </div>
@@ -247,8 +272,10 @@
 <script>
 /* ===================== State ===================== */
 let styles = [
-  { name:"Default", font:"Arial", size:28, color:"#ffffff", bold:false, italic:false, border:false }
+  { name:"Default", font:"Arial", size:28, color:"#ffffff", bold:false, italic:false, border:false, weight:400, letterSpacing:0, transform:'none' }
 ];
+let customFonts = []; // {name, url} — fonts imported by the user this session
+const loadedGoogleFonts = new Set();
 let lines = []; // {id,start,end,style,text,override:null|{font,size,color,bold,italic}}
 let nextId = 1;
 let selectedId = null;
@@ -263,6 +290,94 @@ const gridBody = document.getElementById('gridBody');
 const styleList = document.getElementById('styleList');
 const lineStyleSel = document.getElementById('lineStyleSel');
 const filestate = document.getElementById('filestate');
+
+/* ===================== Fonts ===================== */
+const SYSTEM_FONTS = [
+  "Arial","Helvetica","Times New Roman","Georgia","Verdana","Tahoma",
+  "Trebuchet MS","Courier New","Comic Sans MS","Impact","Segoe UI"
+];
+const GOOGLE_FONTS = [
+  "Roboto","Open Sans","Lato","Montserrat","Poppins","Oswald","Nunito","Raleway",
+  "Ubuntu","PT Sans","Noto Sans","Source Sans Pro","Inter","Work Sans","Rubik",
+  "Quicksand","Merriweather","Playfair Display","Fira Sans","Karla","Barlow",
+  "DM Sans","Space Grotesk","Mukta","Archivo Black","Bebas Neue","Anton",
+  "Roboto Mono","JetBrains Mono","Courier Prime","Caveat","Pacifico",
+  "Dancing Script","Lobster","Shrikhand","Bangers","Permanent Marker","Righteous"
+];
+
+function buildFontOptionsHTML(current){
+  const esc = s=>s.replace(/"/g,'&quot;');
+  let html = '';
+  if(current && !SYSTEM_FONTS.includes(current) && !GOOGLE_FONTS.includes(current) && !customFonts.find(f=>f.name===current)){
+    // preserve unknown fonts coming from an imported .ass file
+    html += `<option value="${esc(current)}" selected>${esc(current)} (imported file)</option>`;
+  }
+  if(customFonts.length){
+    html += `<optgroup label="Your fonts">${customFonts.map(f=>`<option value="${esc(f.name)}" ${f.name===current?'selected':''}>${esc(f.name)}</option>`).join('')}</optgroup>`;
+  }
+  html += `<optgroup label="System">${SYSTEM_FONTS.map(f=>`<option value="${esc(f)}" ${f===current?'selected':''}>${esc(f)}</option>`).join('')}</optgroup>`;
+  html += `<optgroup label="Google Fonts">${GOOGLE_FONTS.map(f=>`<option value="${esc(f)}" ${f===current?'selected':''}>${esc(f)}</option>`).join('')}</optgroup>`;
+  return html;
+}
+function buildWeightOptionsHTML(current){
+  const opts = [[100,'Thin'],[200,'Extralight'],[300,'Light'],[400,'Regular'],[500,'Medium'],[600,'Semibold'],[700,'Bold'],[800,'Extrabold'],[900,'Black']];
+  return opts.map(([v,l])=>`<option value="${v}" ${v===current?'selected':''}>${l}</option>`).join('');
+}
+function buildTransformOptionsHTML(current){
+  const opts = [['none','Normal'],['uppercase','UPPER'],['capitalize','Capitalize']];
+  return opts.map(([v,l])=>`<option value="${v}" ${v===current?'selected':''}>${l}</option>`).join('');
+}
+
+// Load a Google Font on demand via a <link>, or resolve immediately for system/custom fonts
+function ensureFontLoaded(name){
+  if(!name) return Promise.resolve();
+  if(SYSTEM_FONTS.includes(name)) return Promise.resolve();
+  if(customFonts.find(f=>f.name===name)) return document.fonts.ready;
+  if(loadedGoogleFonts.has(name)) return document.fonts.ready;
+  if(!GOOGLE_FONTS.includes(name)) return Promise.resolve(); // unknown font, let the browser fall back
+  loadedGoogleFonts.add(name);
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(name).replace(/%20/g,'+')}:ital,wght@0,300;0,400;0,500;0,600;0,700;0,900;1,400;1,700&display=swap`;
+  document.head.appendChild(link);
+  return new Promise(res=>{ link.onload = ()=>res(); link.onerror = ()=>res(); setTimeout(res, 1500); }).then(()=>document.fonts.ready);
+}
+
+function refreshAllFontSelects(){
+  document.querySelectorAll('#styleList select.sfont').forEach(sel=>{
+    const idx = [...styleList.querySelectorAll('.styleCard')].indexOf(sel.closest('.styleCard'));
+    if(idx>-1) sel.innerHTML = buildFontOptionsHTML(styles[idx].font);
+  });
+  const ovSel = document.getElementById('ovFont');
+  if(ovSel){ const l = getSelected(); const cur = l ? (l.override ? l.override.font : getStyle(l.style).font) : null; ovSel.innerHTML = buildFontOptionsHTML(cur); }
+}
+
+document.getElementById('fontInput').addEventListener('change', function(e){
+  const files = [...e.target.files];
+  if(!files.length) return;
+  let loaded = 0;
+  files.forEach(file=>{
+    const reader = new FileReader();
+    reader.onload = () => {
+      const buf = reader.result;
+      const guessedName = file.name.replace(/\.[^.]+$/,'').replace(/[-_]+/g,' ').trim();
+      const face = new FontFace(guessedName, buf);
+      face.load().then(loadedFace=>{
+        document.fonts.add(loadedFace);
+        if(!customFonts.find(f=>f.name===guessedName)) customFonts.push({name:guessedName});
+        loaded++;
+        refreshAllFontSelects();
+        renderOverlay();
+        filestate.textContent = `imported font: ${guessedName}`;
+      }).catch(err=>{
+        console.error('Font load failed', file.name, err);
+        filestate.textContent = `couldn't load font: ${file.name}`;
+      });
+    };
+    reader.readAsArrayBuffer(file);
+  });
+  e.target.value = '';
+});
 
 /* ===================== Time helpers ===================== */
 function fmtHMS(sec, msDigits, msSep){
@@ -312,7 +427,7 @@ function assColorToHex(ass){
 }
 
 /* ===================== Model helpers ===================== */
-function addStyle(s){ styles.push(Object.assign({name:"Style"+styles.length,font:"Arial",size:28,color:"#ffffff",bold:false,italic:false,border:false}, s||{})); }
+function addStyle(s){ styles.push(Object.assign({name:"Style"+styles.length,font:"Arial",size:28,color:"#ffffff",bold:false,italic:false,border:false,weight:400,letterSpacing:0,transform:'none'}, s||{})); }
 function getStyle(name){ return styles.find(s=>s.name===name) || styles[0]; }
 
 function addLine(start,end,text,styleName){
@@ -346,15 +461,21 @@ function parseASS(text){
         const parts = line.substring(line.indexOf(':')+1).split(',').map(s=>s.trim());
         const obj = {};
         (styleFmt||[]).forEach((f,i)=> obj[f]=parts[i]);
-        newStyles.push({
-          name: obj.name || ('Style'+(newStyles.length+1)),
-          font: obj.fontname || 'Arial',
-          size: parseInt(obj.fontsize)||28,
-          color: obj.primarycolour ? assColorToHex(obj.primarycolour) : '#ffffff',
-          bold: obj.bold === '-1' || obj.bold === '1',
-          italic: obj.italic === '-1' || obj.italic === '1',
-          border: obj.outline ? (parseFloat(obj.outline) > 0) : false
-        });
+        {
+          const isBold = obj.bold === '-1' || obj.bold === '1';
+          newStyles.push({
+            name: obj.name || ('Style'+(newStyles.length+1)),
+            font: obj.fontname || 'Arial',
+            size: parseInt(obj.fontsize)||28,
+            color: obj.primarycolour ? assColorToHex(obj.primarycolour) : '#ffffff',
+            bold: isBold,
+            italic: obj.italic === '-1' || obj.italic === '1',
+            border: obj.outline ? (parseFloat(obj.outline) > 0) : false,
+            weight: isBold ? 700 : 400,
+            letterSpacing: obj.spacing ? parseFloat(obj.spacing)||0 : 0,
+            transform: 'none'
+          });
+        }
       }
     } else if(section && section.includes('events')){
       if(/^format:/i.test(line)){
@@ -397,7 +518,9 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
     const col = hexToAssColor(s.color);
     const outline = s.border ? 2 : 0;
     const shadow = s.border ? 1 : 0;
-    return `Style: ${s.name},${s.font},${s.size},${col},&H000000FF&,&H00000000&,&H00000000&,${s.bold?-1:0},${s.italic?-1:0},0,0,100,100,0,0,1,${outline},${shadow},2,10,10,10,1`;
+    const isBold = (s.weight||(s.bold?700:400)) >= 600;
+    const spacing = s.letterSpacing||0;
+    return `Style: ${s.name},${s.font},${s.size},${col},&H000000FF&,&H00000000&,&H00000000&,${isBold?-1:0},${s.italic?-1:0},0,0,100,100,${spacing},0,1,${outline},${shadow},2,10,10,10,1`;
   }).join('\n');
   const evHeader = `\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n`;
   const sorted = [...lines].sort((a,b)=>a.start-b.start);
@@ -405,11 +528,13 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
     let prefix = '';
     if(l.override){
       const ov = l.override;
+      const ovBold = (ov.weight||(ov.bold?700:400)) >= 600;
       if(ov.font) prefix += `\\fn${ov.font}`;
       if(ov.size) prefix += `\\fs${ov.size}`;
       if(ov.color) prefix += `\\c${hexToAssColor(ov.color).replace('&H','&H').replace(/&$/,'')}&`;
-      if(ov.bold) prefix += `\\b1`;
+      if(ovBold) prefix += `\\b1`;
       if(ov.italic) prefix += `\\i1`;
+      if(ov.letterSpacing) prefix += `\\fsp${ov.letterSpacing}`;
       if(prefix) prefix = `{${prefix}}`;
     }
     const text = prefix + l.text.replace(/\n/g,'\\N');
@@ -493,16 +618,19 @@ function renderLineEditor(){
   const ov = l.override;
   document.getElementById('overrideChk').checked = !!ov;
   const st = getStyle(l.style);
-  document.getElementById('ovFont').value = ov ? ov.font : st.font;
-  document.getElementById('ovSize').value = ov ? ov.size : st.size;
-  document.getElementById('ovColor').value = ov ? ov.color : st.color;
-  document.getElementById('ovBold').checked = ov ? ov.bold : st.bold;
-  document.getElementById('ovItalic').checked = ov ? ov.italic : st.italic;
+  const eff = ov ? Object.assign({}, st, ov) : st;
+  document.getElementById('ovFont').innerHTML = buildFontOptionsHTML(eff.font);
+  document.getElementById('ovSize').value = eff.size;
+  document.getElementById('ovColor').value = eff.color;
+  document.getElementById('ovWeight').value = eff.weight||400;
+  document.getElementById('ovItalic').checked = eff.italic;
+  document.getElementById('ovSpacing').value = eff.letterSpacing||0;
+  document.getElementById('ovTransform').value = eff.transform||'none';
   toggleOverrideInputs();
 }
 function toggleOverrideInputs(){
   const on = document.getElementById('overrideChk').checked;
-  ['ovFont','ovSize','ovColor','ovBold','ovItalic'].forEach(id=>{
+  ['ovFont','ovSize','ovColor','ovWeight','ovItalic','ovSpacing','ovTransform'].forEach(id=>{
     document.getElementById(id).disabled = !on;
   });
 }
@@ -511,18 +639,23 @@ document.getElementById('overrideChk').addEventListener('change', function(){
   toggleOverrideInputs();
   if(this.checked){
     const st = getStyle(l.style);
-    l.override = { font: st.font, size: st.size, color: st.color, bold: st.bold, italic: st.italic };
+    l.override = { font: st.font, size: st.size, color: st.color, bold: st.bold, italic: st.italic, weight: st.weight||400, letterSpacing: st.letterSpacing||0, transform: st.transform||'none' };
   } else { l.override = null; }
   renderLineEditor(); renderGrid();
 });
-['ovFont','ovSize','ovColor','ovBold','ovItalic'].forEach(id=>{
-  document.getElementById(id).addEventListener('input', function(){
+['ovFont','ovSize','ovColor','ovWeight','ovItalic','ovSpacing','ovTransform'].forEach(id=>{
+  const evt = (id==='ovFont'||id==='ovWeight'||id==='ovTransform') ? 'change' : 'input';
+  document.getElementById(id).addEventListener(evt, function(){
     const l = getSelected(); if(!l || !l.override) return;
     l.override.font = document.getElementById('ovFont').value || 'Arial';
     l.override.size = parseInt(document.getElementById('ovSize').value)||28;
     l.override.color = document.getElementById('ovColor').value;
-    l.override.bold = document.getElementById('ovBold').checked;
+    l.override.weight = parseInt(document.getElementById('ovWeight').value)||400;
+    l.override.bold = l.override.weight>=600;
     l.override.italic = document.getElementById('ovItalic').checked;
+    l.override.letterSpacing = parseFloat(document.getElementById('ovSpacing').value)||0;
+    l.override.transform = document.getElementById('ovTransform').value;
+    if(id==='ovFont') ensureFontLoaded(l.override.font).then(renderOverlay);
     renderOverlay();
   });
 });
@@ -576,14 +709,22 @@ function renderStyles(){
     card.innerHTML = `
       <input class="sname" value="${s.name}">
       <div class="srow">
-        <input type="text" class="sfont" value="${s.font}" placeholder="Font family">
-        <input type="number" class="ssize" value="${s.size}" style="max-width:52px;">
-        <input type="color" class="scolor" value="${s.color}">
+        <select class="sfont">${buildFontOptionsHTML(s.font)}</select>
       </div>
       <div class="srow">
-        <label class="chk"><input type="checkbox" class="sbold" ${s.bold?'checked':''}> Bold</label>
+        <label class="fieldlbl">Size<input type="number" class="ssize" value="${s.size}"></label>
+        <label class="fieldlbl">Weight
+          <select class="sweight">${buildWeightOptionsHTML(s.weight||400)}</select>
+        </label>
+        <label class="fieldlbl">Spacing<input type="number" class="sspacing" value="${s.letterSpacing||0}" step="0.5"></label>
+        <input type="color" class="scolor" value="${s.color}" title="Text color">
+      </div>
+      <div class="srow">
         <label class="chk"><input type="checkbox" class="sitalic" ${s.italic?'checked':''}> Italic</label>
         <label class="chk"><input type="checkbox" class="sborder" ${s.border?'checked':''}> Border</label>
+        <label class="chk">Case
+          <select class="stransform" style="flex:0 0 auto;">${buildTransformOptionsHTML(s.transform||'none')}</select>
+        </label>
         ${styles.length>1?'<span class="delStyle">Remove</span>':''}
       </div>
     `;
@@ -592,12 +733,14 @@ function renderStyles(){
       lines.forEach(l=>{ if(l.style===old) l.style=s.name; });
       renderLineEditor(); renderGrid(); renderStyles();
     });
-    card.querySelector('.sfont').addEventListener('input', function(){ s.font=this.value; renderOverlay(); renderLineEditor(); });
+    card.querySelector('.sfont').addEventListener('change', function(){ s.font=this.value; ensureFontLoaded(s.font).then(renderOverlay); renderOverlay(); renderLineEditor(); });
     card.querySelector('.ssize').addEventListener('input', function(){ s.size=parseInt(this.value)||28; renderOverlay(); renderLineEditor(); });
+    card.querySelector('.sweight').addEventListener('change', function(){ s.weight=parseInt(this.value)||400; s.bold = s.weight>=600; renderOverlay(); });
+    card.querySelector('.sspacing').addEventListener('input', function(){ s.letterSpacing=parseFloat(this.value)||0; renderOverlay(); });
     card.querySelector('.scolor').addEventListener('input', function(){ s.color=this.value; renderOverlay(); renderLineEditor(); });
-    card.querySelector('.sbold').addEventListener('change', function(){ s.bold=this.checked; renderOverlay(); });
     card.querySelector('.sitalic').addEventListener('change', function(){ s.italic=this.checked; renderOverlay(); });
     card.querySelector('.sborder').addEventListener('change', function(){ s.border=this.checked; renderOverlay(); });
+    card.querySelector('.stransform').addEventListener('change', function(){ s.transform=this.value; renderOverlay(); });
     const delBtn = card.querySelector('.delStyle');
     if(delBtn) delBtn.addEventListener('click', ()=>{
       const fallback = styles.find(x=>x.name!==s.name).name;
@@ -616,9 +759,11 @@ document.getElementById('addStyleBtn').addEventListener('click', ()=>{
 /* ===================== Overlay rendering (no border by default) ===================== */
 function applyCapStyle(el, st){
   el.style.fontFamily = `"${st.font}", sans-serif`;
-  el.style.fontWeight = st.bold ? '700':'400';
+  el.style.fontWeight = st.weight || (st.bold ? '700':'400');
   el.style.fontStyle = st.italic ? 'italic':'normal';
   el.style.color = st.color;
+  el.style.letterSpacing = (st.letterSpacing||0) + 'px';
+  el.style.textTransform = st.transform || 'none';
   const boxW = videoWrap.clientWidth || 960;
   const px = Math.max(10, st.size * (boxW/960));
   el.style.fontSize = px + 'px';
@@ -638,6 +783,7 @@ function renderOverlay(){
   const st = l.override ? Object.assign({}, getStyle(l.style), l.override) : getStyle(l.style);
   capEl.innerHTML = l.text.split('\n').map(x=>escapeHtml(x)).join('<br>');
   applyCapStyle(capEl, st);
+  ensureFontLoaded(st.font).then(()=> applyCapStyle(capEl, st)); // re-apply once the webfont is actually available
 }
 function escapeHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
