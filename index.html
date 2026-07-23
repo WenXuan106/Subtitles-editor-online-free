@@ -965,11 +965,20 @@ document.getElementById('subInput').addEventListener('change', function(e){
   reader.readAsText(f);
 });
 function download(filename, content){
-  const blob = new Blob([content], {type:'text/plain;charset=utf-8'});
+  // Safari ignores the `download` filename for text/plain blobs and saves everything
+  // as .txt — application/octet-stream stops it from guessing an extension.
+  const blob = new Blob([content], {type:'application/octet-stream'});
+  const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
+  a.href = url;
   a.download = filename;
-  document.body.appendChild(a); a.click(); a.remove();
+  a.rel = 'noopener';
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // revoke on a delay — Safari can abort the download if the URL is revoked immediately
+  setTimeout(()=> URL.revokeObjectURL(url), 4000);
 }
 document.getElementById('exportSrt').addEventListener('click', ()=> download('subtitles.srt', exportSRT()));
 document.getElementById('exportAss').addEventListener('click', ()=> download('subtitles.ass', exportASS()));
