@@ -245,7 +245,7 @@
           <select id="lineStyleSel"></select>
         </label>
         <label><input type="checkbox" id="overrideChk"> Override style</label>
-        <label>Font <input type="text" id="ovFont" style="width:110px" placeholder="Arial"></label>
+        <label>Font <select id="ovFont" style="width:130px"></select></label>
         <label>Size <input type="number" id="ovSize" style="width:52px" value="28"></label>
         <label>Color <input type="color" id="ovColor" value="#ffffff"></label>
         <label><input type="checkbox" id="ovBold">B</label>
@@ -517,6 +517,53 @@ function renderGrid(){
   });
 }
 
+/* ===================== Fonts ===================== */
+const FONTS = [
+  {family:'Arial'}, {family:'Helvetica'}, {family:'Verdana'}, {family:'Tahoma'},
+  {family:'Trebuchet MS'}, {family:'Georgia'}, {family:'Times New Roman'},
+  {family:'Courier New'}, {family:'Impact'}, {family:'Comic Sans MS'},
+  {family:'Segoe UI'}, {family:'Calibri'}, {family:'Consolas'},
+  {family:'Poppins', google:true}, {family:'Montserrat', google:true},
+  {family:'Oswald', google:true}, {family:'Bebas Neue', google:true},
+  {family:'Anton', google:true}, {family:'Righteous', google:true},
+  {family:'Pacifico', google:true}, {family:'Roboto', google:true},
+  {family:'Open Sans', google:true}, {family:'Lato', google:true},
+  {family:'Fredoka', google:true}
+];
+const loadedGoogleFonts = new Set();
+function loadFontIfGoogle(family){
+  const f = FONTS.find(x=>x.family===family);
+  if(!f || !f.google || loadedGoogleFonts.has(family)) return;
+  loadedGoogleFonts.add(family);
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(family).replace(/%20/g,'+')}:wght@400;700&display=swap`;
+  document.head.appendChild(link);
+}
+function fontOptionsHtml(current){
+  const sys = FONTS.filter(f=>!f.google);
+  const goog = FONTS.filter(f=>f.google);
+  const opt = f => `<option value="${f.family}"${f.family===current?' selected':''}>${f.family}</option>`;
+  let extra = '';
+  if(current && !FONTS.some(f=>f.family===current)){
+    extra = `<option value="${escapeHtml(current)}" selected>${escapeHtml(current)} (custom)</option>`;
+  }
+  return extra
+    + `<optgroup label="System fonts">${sys.map(opt).join('')}</optgroup>`
+    + `<optgroup label="Google Fonts — loads online">${goog.map(opt).join('')}</optgroup>`
+    + `<option value="__custom__">Custom…</option>`;
+}
+// Applies a <select> font choice: prompts for a name on "Custom…", lazy-loads Google fonts, then calls onSet(newFamily|null)
+function applyFontChoice(selectEl, onSet){
+  if(selectEl.value === '__custom__'){
+    const name = (prompt('Enter a font family name:', '')||'').trim();
+    onSet(name || null);
+    return;
+  }
+  loadFontIfGoogle(selectEl.value);
+  onSet(selectEl.value);
+}
+
 /* ===================== Line editor ===================== */
 function renderStyleOptions(sel){
   sel.innerHTML = styles.map(s=>`<option value="${s.name}">${s.name}</option>`).join('');
@@ -538,7 +585,7 @@ function renderLineEditor(){
   const ov = l.override;
   document.getElementById('overrideChk').checked = !!ov;
   const st = getStyle(l.style);
-  document.getElementById('ovFont').value = ov ? ov.font : st.font;
+  document.getElementById('ovFont').innerHTML = fontOptionsHtml(ov ? ov.font : st.font);
   document.getElementById('ovSize').value = ov ? ov.size : st.size;
   document.getElementById('ovColor').value = ov ? ov.color : st.color;
   document.getElementById('ovBold').checked = ov ? ov.bold : st.bold;
@@ -561,7 +608,14 @@ document.getElementById('overrideChk').addEventListener('change', function(){
   } else { l.override = null; }
   renderLineEditor(); renderGrid();
 });
-['ovFont','ovSize','ovColor','ovBold','ovItalic'].forEach(id=>{
+document.getElementById('ovFont').addEventListener('change', function(){
+  const l = getSelected(); if(!l || !l.override) return;
+  applyFontChoice(this, (val)=>{
+    if(val) l.override.font = val;
+    renderLineEditor(); renderOverlay();
+  });
+});
+['ovSize','ovColor','ovBold','ovItalic'].forEach(id=>{
   document.getElementById(id).addEventListener('input', function(){
     const l = getSelected(); if(!l || !l.override) return;
     l.override.font = document.getElementById('ovFont').value || 'Arial';
@@ -631,7 +685,7 @@ function renderStyles(){
     card.innerHTML = `
       <input class="sname" value="${s.name}">
       <div class="srow">
-        <input type="text" class="sfont" value="${s.font}" placeholder="Font family">
+        <select class="sfont">${fontOptionsHtml(s.font)}</select>
         <input type="number" class="ssize" value="${s.size}" style="max-width:52px;">
         <input type="color" class="scolor" value="${s.color}">
       </div>
@@ -647,7 +701,12 @@ function renderStyles(){
       lines.forEach(l=>{ if(l.style===old) l.style=s.name; });
       renderLineEditor(); renderGrid(); renderStyles();
     });
-    card.querySelector('.sfont').addEventListener('input', function(){ s.font=this.value; renderOverlay(); renderLineEditor(); });
+    card.querySelector('.sfont').addEventListener('change', function(){
+      applyFontChoice(this, (val)=>{
+        if(val) s.font=val;
+        renderOverlay(); renderLineEditor(); renderStyles();
+      });
+    });
     card.querySelector('.ssize').addEventListener('input', function(){ s.size=parseInt(this.value)||28; renderOverlay(); renderLineEditor(); });
     card.querySelector('.scolor').addEventListener('input', function(){ s.color=this.value; renderOverlay(); renderLineEditor(); });
     card.querySelector('.sbold').addEventListener('change', function(){ s.bold=this.checked; renderOverlay(); });
@@ -670,6 +729,7 @@ document.getElementById('addStyleBtn').addEventListener('click', ()=>{
 
 /* ===================== Overlay rendering (no border by default) ===================== */
 function applyCapStyle(el, st){
+  loadFontIfGoogle(st.font);
   el.style.fontFamily = `"${st.font}", sans-serif`;
   el.style.fontWeight = st.bold ? '700':'400';
   el.style.fontStyle = st.italic ? 'italic':'normal';
