@@ -1,0 +1,1168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Subtrack — Subtitle Editor</title>
+<style>
+  :root{
+    --bg:#17171a;
+    --panel:#1f2024;
+    --panel-2:#26272c;
+    --line:#34363c;
+    --text:#e9e7e2;
+    --dim:#9a9ba2;
+    --amber:#e8a33d;
+    --amber-dim:#a66f22;
+    --red:#d9614f;
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;}
+  body{
+    background:var(--bg); color:var(--text); font-family:var(--ui);
+    display:flex; flex-direction:column; height:100vh; overflow:hidden;
+    font-size:13px;
+  }
+  ::-webkit-scrollbar{width:10px;height:10px;}
+  ::-webkit-scrollbar-thumb{background:#3a3b41;border-radius:6px;}
+  ::-webkit-scrollbar-track{background:var(--panel);}
+
+  /* ---- Top bar ---- */
+  #topbar{
+    display:flex; align-items:center; gap:6px;
+    padding:8px 12px; background:var(--panel); border-bottom:1px solid var(--line);
+    flex-shrink:0;
+  }
+  #topbar .brand{
+    font-family:var(--mono); font-weight:700; color:var(--amber);
+    letter-spacing:0.5px; margin-right:14px; font-size:14px;
+  }
+  #topbar .brand span{color:var(--dim); font-weight:400;}
+  button, .file-btn{
+    background:var(--panel-2); color:var(--text); border:1px solid var(--line);
+    padding:6px 12px; border-radius:5px; font-size:12.5px; cursor:pointer;
+    font-family:var(--ui); transition:background .12s, border-color .12s;
+  }
+  button:hover, .file-btn:hover{background:#2d2f36; border-color:#454750;}
+  button:active{transform:translateY(1px);}
+  button.primary{background:var(--amber); color:#1a1400; border-color:var(--amber); font-weight:600;}
+  button.primary:hover{background:#f0ad4f;}
+  button:disabled{opacity:.4; cursor:not-allowed;}
+  input[type=file]{display:none;}
+  .sep{width:1px; height:20px; background:var(--line); margin:0 6px;}
+  #topbar .spacer{flex:1;}
+  #filestate{color:var(--dim); font-size:11.5px; font-family:var(--mono);}
+
+  /* ---- Main layout ---- */
+  #main{flex:1; display:flex; min-height:0;}
+  #left{flex:1; display:flex; flex-direction:column; min-width:0; border-right:1px solid var(--line);}
+  #right{width:260px; flex-shrink:0; display:flex; flex-direction:column; background:var(--panel);}
+
+  /* ---- Video + overlay ---- */
+  #videoWrap{
+    position:relative; background:#000; display:flex; align-items:center; justify-content:center;
+    flex-shrink:0; height:46%; min-height:200px; overflow:hidden;
+  }
+  #videoWrap.empty::before{
+    content:"Open a video or audio file to begin"; color:#55565c; font-family:var(--mono); font-size:13px;
+  }
+  video{max-width:100%; max-height:100%; display:block;}
+  #audioPlaceholder{
+    display:none; flex-direction:column; align-items:center; gap:8px; color:#55565c;
+    font-family:var(--mono); font-size:12.5px;
+  }
+  #audioPlaceholder .icon{font-size:34px; color:var(--amber);}
+  #videoWrap.audio-mode #audioPlaceholder{display:flex;}
+  #videoWrap.audio-mode video{display:none;}
+  #overlay{
+    position:absolute; left:0; right:0; bottom:6%; display:flex; justify-content:center;
+    pointer-events:none; padding:0 4%;
+  }
+  #overlay .cap{
+    display:inline-block; text-align:center; line-height:1.25; white-space:pre-wrap;
+    max-width:100%;
+  }
+  #overlay .cap .kw{color:#fff; transition:color .06s linear;}
+  #overlay .cap .kw-active{color:var(--amber);}
+
+  /* ---- Transport ---- */
+  #transport{
+    display:flex; align-items:center; gap:8px; padding:6px 10px; background:var(--panel);
+    border-bottom:1px solid var(--line); border-top:1px solid var(--line); flex-shrink:0;
+  }
+  #transport button{padding:5px 10px;}
+  #curtime{font-family:var(--mono); color:var(--amber); font-size:12.5px; min-width:150px;}
+  #transport input[type=range]{flex:0 0 120px;}
+
+  /* ---- Waveform ---- */
+  #waveWrap{
+    flex-shrink:0; height:130px; background:#101012; border-bottom:1px solid var(--line);
+    position:relative; overflow:hidden;
+  }
+  #waveCanvas{position:absolute; top:0; left:0; cursor:pointer;}
+  #waveHint{
+    position:absolute; top:6px; left:8px; color:#55565c; font-family:var(--mono); font-size:11px; pointer-events:none;
+  }
+
+  /* ---- Grid ---- */
+  #gridWrap{flex:1; overflow-y:auto; min-height:0;}
+  table#grid{width:100%; border-collapse:collapse; font-size:12.5px;}
+  #grid thead th{
+    position:sticky; top:0; background:var(--panel); text-align:left; padding:6px 8px;
+    color:var(--dim); font-weight:600; border-bottom:1px solid var(--line); z-index:2; font-size:11px;
+    text-transform:uppercase; letter-spacing:.04em;
+  }
+  #grid tbody tr{border-bottom:1px solid #26272c; cursor:pointer;}
+  #grid tbody tr:hover{background:#202126;}
+  #grid tbody tr.selected{background:#2c2410; box-shadow:inset 3px 0 0 var(--amber);}
+  #grid td{padding:5px 8px; vertical-align:top; color:var(--text);}
+  #grid td.idx{color:var(--dim); font-family:var(--mono); width:28px;}
+  #grid td.time{font-family:var(--mono); color:#c9b992; white-space:nowrap; width:82px; font-size:11.5px;}
+  #grid td.style{width:90px; color:var(--dim); font-family:var(--mono); font-size:11.5px;}
+  #grid td.txt{width:auto;}
+  #grid td.del{width:24px; text-align:center;}
+  #grid td.del span{color:var(--dim); cursor:pointer;}
+  #grid td.del span:hover{color:var(--red);}
+  #grid .capline{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+  /* ---- Line editor ---- */
+  #lineEditor{
+    flex-shrink:0; border-top:1px solid var(--line); background:var(--panel); padding:8px 10px;
+    display:flex; flex-direction:column; gap:6px;
+  }
+  #lineEditor textarea{
+    width:100%; resize:vertical; min-height:44px; background:var(--panel-2); color:var(--text);
+    border:1px solid var(--line); border-radius:5px; padding:7px 9px; font-family:var(--ui); font-size:13px;
+  }
+  #lineEditor .row{display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
+  #lineEditor label{color:var(--dim); font-size:11px; display:flex; align-items:center; gap:5px;}
+  #lineEditor select, #lineEditor input[type=color], #lineEditor input[type=number], #lineEditor input[type=text]{
+    background:var(--panel-2); color:var(--text); border:1px solid var(--line); border-radius:4px;
+    padding:4px 6px; font-size:12px; font-family:var(--ui);
+  }
+  #lineEditor input[type=color]{width:30px; height:26px; padding:2px; cursor:pointer;}
+
+  /* ---- Karaoke word-timing panel ---- */
+  #karaokePanel{display:none; flex-direction:column; gap:6px; border-top:1px dashed var(--line); padding-top:7px; margin-top:2px;}
+  #kStatus{color:var(--dim); font-size:11px; font-family:var(--mono);}
+  #karaokeTrack{
+    position:relative; height:38px; background:var(--panel-2); border:1px solid var(--line);
+    border-radius:5px; overflow:hidden;
+  }
+  #karaokeTrack.empty::before{
+    content:"No words yet — click Even Split or AI Auto-Time"; position:absolute; inset:0;
+    display:flex; align-items:center; justify-content:center; color:#55565c; font-size:11px; font-family:var(--mono);
+  }
+  .kseg{
+    position:absolute; top:0; bottom:0; display:flex; align-items:center; justify-content:center;
+    font-family:var(--mono); font-size:11px; color:var(--text); background:rgba(232,163,61,0.10);
+    border-right:1px solid var(--line); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    padding:0 3px; cursor:pointer;
+  }
+  .kseg:hover{background:rgba(232,163,61,0.24);}
+  .kseg.playing{background:rgba(232,163,61,0.5); color:#1a1400;}
+  .khandle{position:absolute; top:0; bottom:0; width:9px; margin-left:-4.5px; cursor:ew-resize; z-index:3;}
+  .khandle::after{content:""; position:absolute; left:3.5px; top:0; bottom:0; width:2px; background:var(--amber);}
+  .khandle:hover::after, .khandle.active::after{background:#fff; width:3px; left:3px;}
+
+  /* ---- Right panel: styles ---- */
+  #right h3{margin:0; padding:10px 12px 8px; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); border-bottom:1px solid var(--line);}
+  #styleList{overflow-y:auto; flex:1;}
+  .styleCard{border-bottom:1px solid var(--line); padding:9px 12px;}
+  .styleCard.active-style{background:#20211f;}
+  .styleCard .sname{
+    background:transparent; border:none; color:var(--amber); font-weight:700; font-size:13px;
+    width:100%; margin-bottom:6px; font-family:var(--mono); padding:2px 0;
+  }
+  .styleCard .srow{display:flex; align-items:center; gap:6px; margin-bottom:5px;}
+  .styleCard select, .styleCard input[type=number]{
+    background:var(--panel-2); color:var(--text); border:1px solid var(--line); border-radius:4px;
+    padding:3px 5px; font-size:11.5px; flex:1; min-width:0;
+  }
+  .styleCard input[type=color]{width:26px; height:24px; padding:2px; border:1px solid var(--line); border-radius:4px; cursor:pointer; background:none;}
+  .styleCard label.chk{color:var(--dim); font-size:11px; display:flex; align-items:center; gap:4px; white-space:nowrap;}
+  .styleCard .delStyle{margin-left:auto; color:var(--dim); cursor:pointer; font-size:11px;}
+  .styleCard .delStyle:hover{color:var(--red);}
+  #addStyleBtn{margin:8px 12px;}
+  #zoomRow{display:flex; align-items:center; gap:4px; padding:6px 10px; border-top:1px solid var(--line);}
+  #zoomRow span{color:var(--dim); font-size:11px;}
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div class="brand">SUBTRACK <span>web subtitle editor</span></div>
+  <label class="file-btn">Open Video/Audio<input type="file" id="mediaInput" accept="video/*,audio/*"></label>
+  <label class="file-btn">Import .ass/.srt<input type="file" id="subInput" accept=".ass,.ssa,.srt"></label>
+  <div class="sep"></div>
+  <button id="exportSrt">Export .srt</button>
+  <button id="exportAss">Export .ass</button>
+  <div class="sep"></div>
+  <button id="addLineBtn" class="primary">+ Line</button>
+  <div class="spacer"></div>
+  <span id="filestate">no media loaded</span>
+</div>
+
+<div id="main">
+  <div id="left">
+    <div id="videoWrap" class="empty">
+      <video id="video"></video>
+      <audio id="audioEl" style="display:none"></audio>
+      <div id="audioPlaceholder"><div class="icon">♪</div><div>audio only — no video preview</div></div>
+      <div id="overlay"><div class="cap" id="capEl"></div></div>
+    </div>
+
+    <div id="transport">
+      <button id="playBtn">▶</button>
+      <button id="backBtn">« 2s</button>
+      <button id="fwdBtn">2s »</button>
+      <input type="range" id="seek" min="0" max="1000" value="0" step="1">
+      <span id="curtime">0:00:00.00 / 0:00:00.00</span>
+      <div class="sep"></div>
+      <button id="setStartBtn">Set Start ⇤</button>
+      <button id="setEndBtn">Set End ⇥</button>
+    </div>
+
+    <div id="waveWrap">
+      <div id="waveHint">no audio decoded yet</div>
+      <canvas id="waveCanvas"></canvas>
+    </div>
+
+    <div id="gridWrap">
+      <table id="grid">
+        <thead><tr>
+          <th>#</th><th>Start</th><th>End</th><th>Style</th><th>Text</th><th></th>
+        </tr></thead>
+        <tbody id="gridBody"></tbody>
+      </table>
+    </div>
+
+    <div id="lineEditor">
+      <textarea id="lineText" placeholder="Select or add a subtitle line to edit its text…"></textarea>
+      <div class="row">
+        <label>Style
+          <select id="lineStyleSel"></select>
+        </label>
+        <label><input type="checkbox" id="overrideChk"> Override style</label>
+        <label>Font <select id="ovFont" style="width:130px"></select></label>
+        <label>Size <input type="number" id="ovSize" style="width:52px" value="28"></label>
+        <label>Color <input type="color" id="ovColor" value="#ffffff"></label>
+        <label><input type="checkbox" id="ovBold">B</label>
+        <label><input type="checkbox" id="ovItalic">I</label>
+        <div class="sep"></div>
+        <button id="dupLineBtn">Duplicate</button>
+        <button id="delLineBtn">Delete line</button>
+      </div>
+      <div class="row">
+        <label><input type="checkbox" id="karaokeChk"> Karaoke word timing</label>
+      </div>
+      <div id="karaokePanel">
+        <div class="row">
+          <button id="kEvenBtn">Even split</button>
+          <button id="kAiBtn">✨ AI Auto-Time (free, in-browser)</button>
+          <span id="kStatus"></span>
+        </div>
+        <div id="karaokeTrack"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="right">
+    <h3>Styles</h3>
+    <div id="styleList"></div>
+    <button id="addStyleBtn">+ Add style</button>
+    <div id="zoomRow">
+      <span>Waveform zoom</span>
+      <button id="zoomOut">–</button>
+      <button id="zoomIn">+</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ===================== State ===================== */
+let styles = [
+  { name:"Default", font:"Arial", size:28, color:"#ffffff", bold:false, italic:false, border:false }
+];
+let lines = []; // {id,start,end,style,text,override:null|{font,size,color,bold,italic}}
+let nextId = 1;
+let selectedId = null;
+let selectedStyleName = null;
+
+const video = document.getElementById('video');
+const audioEl = document.getElementById('audioEl');
+let media = video; // points at whichever of video/audioEl is currently active
+const videoWrap = document.getElementById('videoWrap');
+const capEl = document.getElementById('capEl');
+const gridBody = document.getElementById('gridBody');
+const styleList = document.getElementById('styleList');
+const lineStyleSel = document.getElementById('lineStyleSel');
+const filestate = document.getElementById('filestate');
+
+/* ===================== Time helpers ===================== */
+function fmtHMS(sec, msDigits, msSep){
+  if(!isFinite(sec) || sec<0) sec=0;
+  const h = Math.floor(sec/3600);
+  const m = Math.floor((sec%3600)/60);
+  const s = Math.floor(sec%60);
+  const frac = sec - Math.floor(sec);
+  const msStr = Math.round(frac * Math.pow(10,msDigits)).toString().padStart(msDigits,'0');
+  return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}${msSep}${msStr}`;
+}
+function toAssTime(sec){ return fmtHMS(sec,2,'.'); }
+function toSrtTime(sec){
+  if(!isFinite(sec) || sec<0) sec=0;
+  const h = Math.floor(sec/3600);
+  const m = Math.floor((sec%3600)/60);
+  const s = Math.floor(sec%60);
+  const ms = Math.round((sec-Math.floor(sec))*1000);
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')},${String(ms).padStart(3,'0')}`;
+}
+function parseAssTime(str){
+  const m = str.trim().match(/(\d+):(\d\d):(\d\d)\.(\d+)/);
+  if(!m) return 0;
+  return (+m[1])*3600 + (+m[2])*60 + (+m[3]) + (+('0.'+m[4]));
+}
+function parseSrtTime(str){
+  const m = str.trim().match(/(\d+):(\d\d):(\d\d)[,.](\d+)/);
+  if(!m) return 0;
+  return (+m[1])*3600 + (+m[2])*60 + (+m[3]) + (+m[4])/1000;
+}
+function short(sec){ return fmtHMS(sec,2,'.'); }
+
+/* ===================== Color helpers ===================== */
+// CSS #rrggbb <-> ASS &HAABBGGRR& (we ignore alpha, use 00)
+function hexToAssColor(hex){
+  hex = hex.replace('#','');
+  const r = hex.substr(0,2), g = hex.substr(2,2), b = hex.substr(4,2);
+  return `&H00${b}${g}${r}`.toUpperCase() + '&';
+}
+function assColorToHex(ass){
+  const m = ass.match(/&H?0*([0-9A-Fa-f]{6,8})&?/);
+  if(!m) return '#ffffff';
+  let hex = m[1].toUpperCase();
+  if(hex.length===8) hex = hex.slice(2); // drop AA
+  const bb = hex.substr(0,2), gg = hex.substr(2,2), rr = hex.substr(4,2);
+  return ('#'+rr+gg+bb).toLowerCase();
+}
+
+/* ===================== Model helpers ===================== */
+function addStyle(s){ styles.push(Object.assign({name:"Style"+styles.length,font:"Arial",size:28,color:"#ffffff",bold:false,italic:false,border:false}, s||{})); }
+function getStyle(name){ return styles.find(s=>s.name===name) || styles[0]; }
+
+function addLine(start,end,text,styleName){
+  const l = { id: nextId++, start: start||0, end: end||(start||0)+2, text: text||"New subtitle", style: styleName||styles[0].name, override:null, karaoke:null };
+  lines.push(l);
+  lines.sort((a,b)=>a.start-b.start);
+  return l;
+}
+function selectLine(id){
+  selectedId = id;
+  renderGrid();
+  renderLineEditor();
+}
+function getSelected(){ return lines.find(l=>l.id===selectedId); }
+
+/* ===================== ASS parsing / export ===================== */
+function parseASS(text){
+  const newStyles = [];
+  const newLines = [];
+  const lines_ = text.split(/\r?\n/);
+  let section = null;
+  let styleFmt = null, eventFmt = null;
+  for(let raw of lines_){
+    const line = raw.trim();
+    if(!line) continue;
+    if(line.startsWith('[')){ section = line.toLowerCase(); continue; }
+    if(section && section.includes('styles')){
+      if(/^format:/i.test(line)){
+        styleFmt = line.split(':').slice(1).join(':').split(',').map(s=>s.trim().toLowerCase());
+      } else if(/^style:/i.test(line)){
+        const parts = line.substring(line.indexOf(':')+1).split(',').map(s=>s.trim());
+        const obj = {};
+        (styleFmt||[]).forEach((f,i)=> obj[f]=parts[i]);
+        newStyles.push({
+          name: obj.name || ('Style'+(newStyles.length+1)),
+          font: obj.fontname || 'Arial',
+          size: parseInt(obj.fontsize)||28,
+          color: obj.primarycolour ? assColorToHex(obj.primarycolour) : '#ffffff',
+          bold: obj.bold === '-1' || obj.bold === '1',
+          italic: obj.italic === '-1' || obj.italic === '1',
+          border: obj.outline ? (parseFloat(obj.outline) > 0) : false
+        });
+      }
+    } else if(section && section.includes('events')){
+      if(/^format:/i.test(line)){
+        eventFmt = line.split(':').slice(1).join(':').split(',').map(s=>s.trim().toLowerCase());
+      } else if(/^dialogue:/i.test(line)){
+        const idxText = eventFmt.indexOf('text');
+        const rest = line.substring(line.indexOf(':')+1);
+        const parts = rest.split(',');
+        const head = parts.slice(0, idxText).map(s=>s.trim());
+        const textPart = parts.slice(idxText).join(',');
+        const obj = {};
+        eventFmt.forEach((f,i)=>{ if(i<idxText) obj[f]=head[i]; });
+        let clean = textPart.replace(/\{[^}]*\}/g,'').replace(/\\N/g,'\n').trim();
+        newLines.push({
+          id: nextId++,
+          start: parseAssTime(obj.start||'0:00:00.00'),
+          end: parseAssTime(obj.end||'0:00:02.00'),
+          text: clean,
+          style: obj.style || 'Default',
+          override: null,
+          karaoke: null
+        });
+      }
+    }
+  }
+  return { styles: newStyles.length?newStyles:null, lines: newLines };
+}
+
+function exportASS(){
+  const header = `[Script Info]
+Title: Subtrack export
+ScriptType: v4.00+
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+YCbCr Matrix: TV.601
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+`;
+  const styleLines = styles.map(s=>{
+    const col = hexToAssColor(s.color);
+    const outline = s.border ? 2 : 0;
+    const shadow = s.border ? 1 : 0;
+    return `Style: ${s.name},${s.font},${s.size},${col},&H000000FF&,&H00000000&,&H00000000&,${s.bold?-1:0},${s.italic?-1:0},0,0,100,100,0,0,1,${outline},${shadow},2,10,10,10,1`;
+  }).join('\n');
+  const evHeader = `\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n`;
+  function escapeAssText(s){ return s.replace(/\\/g,'').replace(/\{/g,'').replace(/\}/g,''); }
+  function karaokeAssText(l){
+    return l.karaoke.map(w=>{
+      const cs = Math.max(1, Math.round((w.end-w.start)*100));
+      return `{\\k${cs}}${escapeAssText(w.text)}`;
+    }).join(' ');
+  }
+  const sorted = [...lines].sort((a,b)=>a.start-b.start);
+  const evLines = sorted.map(l=>{
+    let prefix = '';
+    if(l.override){
+      const ov = l.override;
+      if(ov.font) prefix += `\\fn${ov.font}`;
+      if(ov.size) prefix += `\\fs${ov.size}`;
+      if(ov.color) prefix += `\\c${hexToAssColor(ov.color).replace('&H','&H').replace(/&$/,'')}&`;
+      if(ov.bold) prefix += `\\b1`;
+      if(ov.italic) prefix += `\\i1`;
+      if(prefix) prefix = `{${prefix}}`;
+    }
+    const body = (l.karaoke && l.karaoke.length) ? karaokeAssText(l) : l.text.replace(/\n/g,'\\N');
+    const text = prefix + body;
+    return `Dialogue: 0,${toAssTime(l.start)},${toAssTime(l.end)},${l.style},,0,0,0,,${text}`;
+  }).join('\n');
+  return header + styleLines + evHeader + evLines + '\n';
+}
+
+function parseSRT(text){
+  const blocks = text.replace(/\r/g,'').split(/\n\n+/);
+  const newLines = [];
+  for(const b of blocks){
+    const rows = b.split('\n').filter(x=>x.trim().length);
+    if(rows.length<2) continue;
+    let i=0;
+    if(/^\d+$/.test(rows[0].trim())) i=1;
+    const timeRow = rows[i];
+    const m = timeRow.match(/(.+?)\s*-->\s*(.+)/);
+    if(!m) continue;
+    const start = parseSrtTime(m[1]);
+    const end = parseSrtTime(m[2]);
+    const text_ = rows.slice(i+1).join('\n').replace(/<\/?[^>]+>/g,'');
+    newLines.push({ id: nextId++, start, end, text: text_, style:'Default', override:null, karaoke:null });
+  }
+  return newLines;
+}
+
+function exportSRT(){
+  const sorted = [...lines].sort((a,b)=>a.start-b.start);
+  return sorted.map((l,i)=> `${i+1}\n${toSrtTime(l.start)} --> ${toSrtTime(l.end)}\n${l.text}\n`).join('\n');
+}
+
+/* ===================== Grid rendering ===================== */
+function renderGrid(){
+  gridBody.innerHTML = '';
+  const sorted = [...lines].sort((a,b)=>a.start-b.start);
+  sorted.forEach((l,i)=>{
+    const tr = document.createElement('tr');
+    if(l.id===selectedId) tr.classList.add('selected');
+    tr.innerHTML = `
+      <td class="idx">${i+1}</td>
+      <td class="time">${short(l.start)}</td>
+      <td class="time">${short(l.end)}</td>
+      <td class="style">${l.style}</td>
+      <td class="txt"><div class="capline">${(l.karaoke&&l.karaoke.length)?'🎤 ':''}${l.text.replace(/\n/g,' ⏎ ')}</div></td>
+      <td class="del"><span title="Delete">✕</span></td>
+    `;
+    tr.addEventListener('click', (e)=>{
+      if(e.target.closest('.del')) return;
+      selectLine(l.id);
+      if(media.duration) media.currentTime = l.start;
+    });
+    tr.querySelector('.del span').addEventListener('click', (e)=>{
+      e.stopPropagation();
+      lines = lines.filter(x=>x.id!==l.id);
+      if(selectedId===l.id) selectedId=null;
+      renderGrid(); renderLineEditor(); drawWaveform();
+    });
+    gridBody.appendChild(tr);
+  });
+}
+
+/* ===================== Fonts ===================== */
+const FONTS = [
+  {family:'Arial'}, {family:'Helvetica'}, {family:'Verdana'}, {family:'Tahoma'},
+  {family:'Trebuchet MS'}, {family:'Georgia'}, {family:'Times New Roman'},
+  {family:'Courier New'}, {family:'Impact'}, {family:'Comic Sans MS'},
+  {family:'Segoe UI'}, {family:'Calibri'}, {family:'Consolas'},
+  {family:'Poppins', google:true}, {family:'Montserrat', google:true},
+  {family:'Oswald', google:true}, {family:'Bebas Neue', google:true},
+  {family:'Anton', google:true}, {family:'Righteous', google:true},
+  {family:'Pacifico', google:true}, {family:'Roboto', google:true},
+  {family:'Open Sans', google:true}, {family:'Lato', google:true},
+  {family:'Fredoka', google:true}
+];
+const loadedGoogleFonts = new Set();
+function loadFontIfGoogle(family){
+  const f = FONTS.find(x=>x.family===family);
+  if(!f || !f.google || loadedGoogleFonts.has(family)) return;
+  loadedGoogleFonts.add(family);
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(family).replace(/%20/g,'+')}:wght@400;700&display=swap`;
+  document.head.appendChild(link);
+}
+function fontOptionsHtml(current){
+  const sys = FONTS.filter(f=>!f.google);
+  const goog = FONTS.filter(f=>f.google);
+  const opt = f => `<option value="${f.family}"${f.family===current?' selected':''}>${f.family}</option>`;
+  let extra = '';
+  if(current && !FONTS.some(f=>f.family===current)){
+    extra = `<option value="${escapeHtml(current)}" selected>${escapeHtml(current)} (custom)</option>`;
+  }
+  return extra
+    + `<optgroup label="System fonts">${sys.map(opt).join('')}</optgroup>`
+    + `<optgroup label="Google Fonts — loads online">${goog.map(opt).join('')}</optgroup>`
+    + `<option value="__custom__">Custom…</option>`;
+}
+// Applies a <select> font choice: prompts for a name on "Custom…", lazy-loads Google fonts, then calls onSet(newFamily|null)
+function applyFontChoice(selectEl, onSet){
+  if(selectEl.value === '__custom__'){
+    const name = (prompt('Enter a font family name:', '')||'').trim();
+    onSet(name || null);
+    return;
+  }
+  loadFontIfGoogle(selectEl.value);
+  onSet(selectEl.value);
+}
+
+/* ===================== Line editor ===================== */
+function renderStyleOptions(sel){
+  sel.innerHTML = styles.map(s=>`<option value="${s.name}">${s.name}</option>`).join('');
+}
+function renderLineEditor(){
+  const l = getSelected();
+  const disabled = !l;
+  document.getElementById('lineText').disabled = disabled;
+  document.getElementById('lineStyleSel').disabled = disabled;
+  document.getElementById('overrideChk').disabled = disabled;
+  document.getElementById('setStartBtn').disabled = disabled;
+  document.getElementById('setEndBtn').disabled = disabled;
+  document.getElementById('dupLineBtn').disabled = disabled;
+  document.getElementById('delLineBtn').disabled = disabled;
+  renderStyleOptions(lineStyleSel);
+  if(!l){ document.getElementById('lineText').value=''; renderKaraokePanel(); return; }
+  document.getElementById('lineText').value = l.text;
+  lineStyleSel.value = l.style;
+  const ov = l.override;
+  document.getElementById('overrideChk').checked = !!ov;
+  const st = getStyle(l.style);
+  document.getElementById('ovFont').innerHTML = fontOptionsHtml(ov ? ov.font : st.font);
+  document.getElementById('ovSize').value = ov ? ov.size : st.size;
+  document.getElementById('ovColor').value = ov ? ov.color : st.color;
+  document.getElementById('ovBold').checked = ov ? ov.bold : st.bold;
+  document.getElementById('ovItalic').checked = ov ? ov.italic : st.italic;
+  toggleOverrideInputs();
+  renderKaraokePanel();
+}
+function toggleOverrideInputs(){
+  const on = document.getElementById('overrideChk').checked;
+  ['ovFont','ovSize','ovColor','ovBold','ovItalic'].forEach(id=>{
+    document.getElementById(id).disabled = !on;
+  });
+}
+document.getElementById('overrideChk').addEventListener('change', function(){
+  const l = getSelected(); if(!l) return;
+  toggleOverrideInputs();
+  if(this.checked){
+    const st = getStyle(l.style);
+    l.override = { font: st.font, size: st.size, color: st.color, bold: st.bold, italic: st.italic };
+  } else { l.override = null; }
+  renderLineEditor(); renderGrid();
+});
+document.getElementById('ovFont').addEventListener('change', function(){
+  const l = getSelected(); if(!l || !l.override) return;
+  applyFontChoice(this, (val)=>{
+    if(val) l.override.font = val;
+    renderLineEditor(); renderOverlay();
+  });
+});
+['ovSize','ovColor','ovBold','ovItalic'].forEach(id=>{
+  document.getElementById(id).addEventListener('input', function(){
+    const l = getSelected(); if(!l || !l.override) return;
+    l.override.font = document.getElementById('ovFont').value || 'Arial';
+    l.override.size = parseInt(document.getElementById('ovSize').value)||28;
+    l.override.color = document.getElementById('ovColor').value;
+    l.override.bold = document.getElementById('ovBold').checked;
+    l.override.italic = document.getElementById('ovItalic').checked;
+    renderOverlay();
+  });
+});
+document.getElementById('lineText').addEventListener('input', function(){
+  const l = getSelected(); if(!l) return;
+  l.text = this.value;
+  renderGrid(); renderOverlay();
+  if(l.karaoke && l.karaoke.length){
+    const wc = wordsOf(l.text).length;
+    if(wc !== l.karaoke.length) setKaraokeStatus(`Text now has ${wc} words — click "Even split" or "AI Auto-Time" to resync.`);
+  }
+});
+lineStyleSel.addEventListener('change', function(){
+  const l = getSelected(); if(!l) return;
+  l.style = this.value;
+  renderGrid(); renderLineEditor(); renderOverlay();
+});
+document.getElementById('dupLineBtn').addEventListener('click', ()=>{
+  const l = getSelected(); if(!l) return;
+  const dur = l.end-l.start;
+  const nl = addLine(l.end, l.end+dur, l.text, l.style);
+  nl.override = l.override ? {...l.override} : null;
+  nl.karaoke = (l.karaoke && l.karaoke.length) ? l.karaoke.map(w=>({text:w.text, start:w.start-l.start+nl.start, end:w.end-l.start+nl.start})) : null;
+  selectLine(nl.id); drawWaveform();
+});
+document.getElementById('delLineBtn').addEventListener('click', ()=>{
+  const l = getSelected(); if(!l) return;
+  lines = lines.filter(x=>x.id!==l.id);
+  selectedId = null;
+  renderGrid(); renderLineEditor(); drawWaveform();
+});
+document.getElementById('addLineBtn').addEventListener('click', ()=>{
+  const t = media.currentTime || 0;
+  const nl = addLine(t, t+2, "New subtitle", styles[0].name);
+  selectLine(nl.id); drawWaveform();
+});
+document.getElementById('setStartBtn').addEventListener('click', ()=>{
+  const l = getSelected(); if(!l) return;
+  const oldStart=l.start, oldEnd=l.end;
+  l.start = media.currentTime||0;
+  if(l.start > l.end) l.end = l.start + 1;
+  rescaleKaraoke(l, oldStart, oldEnd);
+  renderGrid(); renderKaraokePanel(); drawWaveform();
+});
+document.getElementById('setEndBtn').addEventListener('click', ()=>{
+  const l = getSelected(); if(!l) return;
+  const oldStart=l.start, oldEnd=l.end;
+  l.end = media.currentTime||0;
+  if(l.end < l.start) l.start = Math.max(0, l.end-1);
+  rescaleKaraoke(l, oldStart, oldEnd);
+  renderGrid(); renderKaraokePanel(); drawWaveform();
+});
+
+/* ===================== Styles panel ===================== */
+function renderStyles(){
+  styleList.innerHTML = '';
+  styles.forEach((s, idx)=>{
+    const card = document.createElement('div');
+    card.className = 'styleCard';
+    card.innerHTML = `
+      <input class="sname" value="${s.name}">
+      <div class="srow">
+        <select class="sfont">${fontOptionsHtml(s.font)}</select>
+        <input type="number" class="ssize" value="${s.size}" style="max-width:52px;">
+        <input type="color" class="scolor" value="${s.color}">
+      </div>
+      <div class="srow">
+        <label class="chk"><input type="checkbox" class="sbold" ${s.bold?'checked':''}> Bold</label>
+        <label class="chk"><input type="checkbox" class="sitalic" ${s.italic?'checked':''}> Italic</label>
+        <label class="chk"><input type="checkbox" class="sborder" ${s.border?'checked':''}> Border</label>
+        ${styles.length>1?'<span class="delStyle">Remove</span>':''}
+      </div>
+    `;
+    card.querySelector('.sname').addEventListener('change', function(){
+      const old = s.name; s.name = this.value.trim()||old;
+      lines.forEach(l=>{ if(l.style===old) l.style=s.name; });
+      renderLineEditor(); renderGrid(); renderStyles();
+    });
+    card.querySelector('.sfont').addEventListener('change', function(){
+      applyFontChoice(this, (val)=>{
+        if(val) s.font=val;
+        renderOverlay(); renderLineEditor(); renderStyles();
+      });
+    });
+    card.querySelector('.ssize').addEventListener('input', function(){ s.size=parseInt(this.value)||28; renderOverlay(); renderLineEditor(); });
+    card.querySelector('.scolor').addEventListener('input', function(){ s.color=this.value; renderOverlay(); renderLineEditor(); });
+    card.querySelector('.sbold').addEventListener('change', function(){ s.bold=this.checked; renderOverlay(); });
+    card.querySelector('.sitalic').addEventListener('change', function(){ s.italic=this.checked; renderOverlay(); });
+    card.querySelector('.sborder').addEventListener('change', function(){ s.border=this.checked; renderOverlay(); });
+    const delBtn = card.querySelector('.delStyle');
+    if(delBtn) delBtn.addEventListener('click', ()=>{
+      const fallback = styles.find(x=>x.name!==s.name).name;
+      lines.forEach(l=>{ if(l.style===s.name) l.style=fallback; });
+      styles.splice(idx,1);
+      renderStyles(); renderGrid(); renderLineEditor();
+    });
+    styleList.appendChild(card);
+  });
+}
+document.getElementById('addStyleBtn').addEventListener('click', ()=>{
+  addStyle({ name:'Style'+(styles.length+1) });
+  renderStyles(); renderLineEditor();
+});
+
+/* ===================== Overlay rendering (no border by default) ===================== */
+function applyCapStyle(el, st){
+  loadFontIfGoogle(st.font);
+  el.style.fontFamily = `"${st.font}", sans-serif`;
+  el.style.fontWeight = st.bold ? '700':'400';
+  el.style.fontStyle = st.italic ? 'italic':'normal';
+  el.style.color = st.color;
+  const boxW = videoWrap.clientWidth || 960;
+  const px = Math.max(10, st.size * (boxW/960));
+  el.style.fontSize = px + 'px';
+  if(st.border){
+    el.style.textShadow = '0 0 4px #000, 0 0 8px #000, 0 2px 2px #000';
+    el.style.webkitTextStroke = '1px rgba(0,0,0,0.85)';
+  } else {
+    el.style.textShadow = 'none';
+    el.style.webkitTextStroke = '0px transparent';
+  }
+}
+function renderOverlay(){
+  const t = media.currentTime || 0;
+  const active = lines.filter(l => t >= l.start && t <= l.end);
+  if(!active.length){ capEl.textContent=''; return; }
+  const l = active[active.length-1];
+  const st = l.override ? Object.assign({}, getStyle(l.style), l.override) : getStyle(l.style);
+  applyCapStyle(capEl, st);
+  if(l.karaoke && l.karaoke.length){
+    capEl.innerHTML = l.karaoke.map(w=>{
+      const cur = t>=w.start && t<w.end;
+      return `<span class="kw${cur?' kw-active':''}">${escapeHtml(w.text)}</span>`;
+    }).join(' ');
+    highlightKaraokeTrack(t, l);
+  } else {
+    capEl.innerHTML = l.text.split('\n').map(x=>escapeHtml(x)).join('<br>');
+  }
+}
+function escapeHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+/* ===================== Karaoke word timing ===================== */
+function wordsOf(text){ return text.replace(/\n/g,' ').trim().split(/\s+/).filter(Boolean); }
+
+// Distribute a line's words evenly (weighted by character length) across its start/end.
+function autoSplitKaraoke(l){
+  const words = wordsOf(l.text);
+  if(!words.length){ l.karaoke = []; return; }
+  const totalChars = words.reduce((a,w)=>a+w.length,0) || words.length;
+  const dur = Math.max(0.01, l.end-l.start);
+  let t = l.start;
+  l.karaoke = words.map((w,i)=>{
+    const share = (w.length/totalChars) * dur;
+    const start = t;
+    const end = (i===words.length-1) ? l.start+dur : t+share;
+    t = end;
+    return {text:w, start, end};
+  });
+}
+
+// Keep word timings proportionally inside the line when Set Start/Set End moves the boundaries.
+function rescaleKaraoke(l, oldStart, oldEnd){
+  if(!l.karaoke || !l.karaoke.length) return;
+  const oldDur = Math.max(0.001, oldEnd-oldStart);
+  const newDur = Math.max(0.001, l.end-l.start);
+  l.karaoke.forEach(w=>{
+    const relStart = (w.start-oldStart)/oldDur;
+    const relEnd = (w.end-oldStart)/oldDur;
+    w.start = l.start + relStart*newDur;
+    w.end = l.start + relEnd*newDur;
+  });
+  l.karaoke[0].start = l.start;
+  l.karaoke[l.karaoke.length-1].end = l.end;
+}
+
+function setKaraokeStatus(msg){ const el=document.getElementById('kStatus'); if(el) el.textContent = msg||''; }
+
+const karaokeChk = document.getElementById('karaokeChk');
+const karaokePanel = document.getElementById('karaokePanel');
+const karaokeTrack = document.getElementById('karaokeTrack');
+
+function renderKaraokePanel(){
+  const l = getSelected();
+  if(!l){ karaokeChk.disabled = true; karaokeChk.checked = false; karaokePanel.style.display='none'; return; }
+  karaokeChk.disabled = false;
+  karaokeChk.checked = !!(l.karaoke && l.karaoke.length);
+  karaokePanel.style.display = karaokeChk.checked ? 'flex' : 'none';
+  karaokeTrack.innerHTML = '';
+  const words = l.karaoke || [];
+  karaokeTrack.classList.toggle('empty', words.length===0);
+  const dur = Math.max(0.01, l.end-l.start);
+  words.forEach((w,i)=>{
+    const seg = document.createElement('div');
+    seg.className = 'kseg';
+    seg.dataset.idx = i;
+    const x1 = (w.start-l.start)/dur*100;
+    const x2 = (w.end-l.start)/dur*100;
+    seg.style.left = x1+'%';
+    seg.style.width = Math.max(0.4,(x2-x1))+'%';
+    seg.textContent = w.text;
+    seg.title = `${w.text}: ${w.start.toFixed(2)}s – ${w.end.toFixed(2)}s (click to seek)`;
+    seg.addEventListener('click', ()=>{ if(media.duration) media.currentTime = w.start; });
+    karaokeTrack.appendChild(seg);
+    if(i < words.length-1){
+      const handle = document.createElement('div');
+      handle.className = 'khandle';
+      handle.style.left = x2+'%';
+      handle.addEventListener('mousedown', (e)=> startDragBoundary(e, l, i, handle));
+      karaokeTrack.appendChild(handle);
+    }
+  });
+}
+
+function highlightKaraokeTrack(t, l){
+  if(getSelected() !== l) return;
+  const segs = karaokeTrack.querySelectorAll('.kseg');
+  segs.forEach(seg=>{
+    const w = l.karaoke[+seg.dataset.idx];
+    seg.classList.toggle('playing', w && t>=w.start && t<w.end);
+  });
+}
+
+let dragCtx = null;
+function startDragBoundary(e, l, idx, handleEl){
+  e.preventDefault();
+  dragCtx = { l, idx, rect: karaokeTrack.getBoundingClientRect(), handleEl };
+  handleEl.classList.add('active');
+  window.addEventListener('mousemove', onDragBoundary);
+  window.addEventListener('mouseup', endDragBoundary);
+}
+function onDragBoundary(e){
+  if(!dragCtx) return;
+  const { l, idx, rect } = dragCtx;
+  const dur = Math.max(0.01, l.end-l.start);
+  let t = l.start + ((e.clientX-rect.left)/rect.width) * dur;
+  const minGap = 0.03;
+  const lo = l.karaoke[idx].start + minGap;
+  const hi = l.karaoke[idx+1].end - minGap;
+  t = Math.max(lo, Math.min(hi, t));
+  l.karaoke[idx].end = t;
+  l.karaoke[idx+1].start = t;
+  renderKaraokePanel();
+  renderOverlay();
+}
+function endDragBoundary(){
+  if(dragCtx && dragCtx.handleEl) dragCtx.handleEl.classList.remove('active');
+  dragCtx = null;
+  window.removeEventListener('mousemove', onDragBoundary);
+  window.removeEventListener('mouseup', endDragBoundary);
+}
+
+karaokeChk.addEventListener('change', function(){
+  const l = getSelected(); if(!l) return;
+  if(this.checked){
+    if(!l.karaoke || !l.karaoke.length) autoSplitKaraoke(l);
+    setKaraokeStatus('');
+  } else {
+    l.karaoke = null;
+  }
+  renderKaraokePanel(); renderOverlay(); renderGrid();
+});
+document.getElementById('kEvenBtn').addEventListener('click', ()=>{
+  const l = getSelected(); if(!l) return;
+  autoSplitKaraoke(l);
+  setKaraokeStatus(`Split ${l.karaoke.length} words evenly — drag the amber handles to fine-tune.`);
+  renderKaraokePanel(); renderOverlay(); renderGrid();
+});
+
+/* ---- Free, in-browser AI word timing (Whisper via transformers.js, WASM — no API key, no server) ---- */
+let asrPipelinePromise = null;
+async function getAsrPipeline(){
+  if(asrPipelinePromise) return asrPipelinePromise;
+  asrPipelinePromise = (async ()=>{
+    setKaraokeStatus('loading AI engine…');
+    const mod = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
+    setKaraokeStatus('downloading Whisper model (first time only, ~40MB)…');
+    return await mod.pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny.en');
+  })();
+  return asrPipelinePromise;
+}
+function extractSegmentFloat32(startSec, endSec){
+  if(!audioBuffer) return null;
+  const sr = audioBuffer.sampleRate;
+  const ch0 = audioBuffer.getChannelData(0);
+  let mono = ch0;
+  if(audioBuffer.numberOfChannels > 1){
+    const ch1 = audioBuffer.getChannelData(1);
+    mono = new Float32Array(ch0.length);
+    for(let i=0;i<ch0.length;i++) mono[i] = (ch0[i]+ch1[i])/2;
+  }
+  const s = Math.max(0, Math.floor(startSec*sr));
+  const e = Math.min(mono.length, Math.ceil(endSec*sr));
+  const seg = mono.subarray(s, Math.max(s+1,e));
+  const targetSr = 16000;
+  if(sr === targetSr) return seg.slice();
+  const ratio = sr/targetSr;
+  const outLen = Math.max(1, Math.floor(seg.length/ratio));
+  const out = new Float32Array(outLen);
+  for(let i=0;i<outLen;i++){
+    const srcIdx = i*ratio;
+    const i0 = Math.floor(srcIdx), i1 = Math.min(seg.length-1, i0+1);
+    const frac = srcIdx-i0;
+    out[i] = seg[i0]*(1-frac) + seg[i1]*frac;
+  }
+  return out;
+}
+async function aiAutoTimeWords(l){
+  const words = wordsOf(l.text);
+  if(!words.length) return;
+  if(!audioBuffer){
+    setKaraokeStatus('No decoded audio track — cannot run AI timing. Using even split instead.');
+    autoSplitKaraoke(l); renderKaraokePanel(); renderOverlay(); renderGrid();
+    return;
+  }
+  document.getElementById('kAiBtn').disabled = true;
+  try{
+    const asr = await getAsrPipeline();
+    setKaraokeStatus('analyzing audio…');
+    const audioData = extractSegmentFloat32(l.start, l.end);
+    const result = await asr(audioData, { return_timestamps:'word', chunk_length_s:30 });
+    const chunks = (result && result.chunks) || [];
+    if(chunks.length === words.length){
+      l.karaoke = chunks.map((c,i)=>{
+        const t0 = c.timestamp && c.timestamp[0]!=null ? c.timestamp[0] : 0;
+        const t1 = c.timestamp && c.timestamp[1]!=null ? c.timestamp[1] : t0+0.3;
+        return { text: words[i], start: l.start+Math.max(0,t0), end: l.start+Math.max(t0+0.05,t1) };
+      });
+      l.karaoke[0].start = l.start;
+      l.karaoke[l.karaoke.length-1].end = l.end;
+      setKaraokeStatus(`AI timed ${chunks.length} words from audio.`);
+    } else {
+      setKaraokeStatus(`AI heard ${chunks.length} words but the line has ${words.length} — used even split, please fine-tune by dragging.`);
+      autoSplitKaraoke(l);
+    }
+  } catch(err){
+    console.error(err);
+    setKaraokeStatus('AI timing failed (offline, or model blocked) — using even split instead.');
+    autoSplitKaraoke(l);
+  }
+  document.getElementById('kAiBtn').disabled = false;
+  renderKaraokePanel(); renderOverlay(); renderGrid();
+}
+document.getElementById('kAiBtn').addEventListener('click', ()=>{
+  const l = getSelected(); if(!l) return;
+  aiAutoTimeWords(l);
+});
+
+/* ===================== Media loading ===================== */
+const AUDIO_EXT = /\.(mp3|wav|m4a|aac|ogg|oga|flac|weba|opus)$/i;
+document.getElementById('mediaInput').addEventListener('change', function(e){
+  const f = e.target.files[0]; if(!f) return;
+  const url = URL.createObjectURL(f);
+  const isAudio = (f.type && f.type.startsWith('audio')) || (!f.type && AUDIO_EXT.test(f.name));
+
+  // reset both elements
+  video.pause(); audioEl.pause();
+  video.removeAttribute('src'); audioEl.removeAttribute('src');
+  video.load(); audioEl.load();
+
+  if(isAudio){
+    audioEl.src = url;
+    media = audioEl;
+    videoWrap.classList.add('audio-mode');
+  } else {
+    video.src = url;
+    media = video;
+    videoWrap.classList.remove('audio-mode');
+  }
+  videoWrap.classList.remove('empty');
+  filestate.textContent = f.name;
+  decodeAudioForWaveform(f);
+});
+
+function onLoadedMetadata(e){
+  if(e.target !== media) return;
+  document.getElementById('seek').max = Math.floor(media.duration*1000);
+  updateTimeLabel();
+  drawWaveform();
+}
+function onTimeUpdate(e){
+  if(e.target !== media) return;
+  document.getElementById('seek').value = Math.floor(media.currentTime*1000);
+  updateTimeLabel();
+  renderOverlay();
+  drawWaveform();
+}
+function onPlay(e){ if(e.target===media) document.getElementById('playBtn').textContent='⏸'; }
+function onPause(e){ if(e.target===media) document.getElementById('playBtn').textContent='▶'; }
+[video, audioEl].forEach(el=>{
+  el.addEventListener('loadedmetadata', onLoadedMetadata);
+  el.addEventListener('timeupdate', onTimeUpdate);
+  el.addEventListener('play', onPlay);
+  el.addEventListener('pause', onPause);
+});
+
+document.getElementById('playBtn').addEventListener('click', ()=>{
+  if(media.paused) media.play(); else media.pause();
+});
+document.getElementById('backBtn').addEventListener('click', ()=> media.currentTime = Math.max(0, media.currentTime-2));
+document.getElementById('fwdBtn').addEventListener('click', ()=> media.currentTime = Math.min(media.duration||0, media.currentTime+2));
+document.getElementById('seek').addEventListener('input', function(){
+  media.currentTime = this.value/1000;
+});
+function updateTimeLabel(){
+  document.getElementById('curtime').textContent = `${short(media.currentTime||0)} / ${short(media.duration||0)}`;
+}
+
+/* ===================== Waveform (Web Audio decode) ===================== */
+let audioBuffer = null;
+let waveZoom = 1; // pixels-per-second multiplier baseline
+const waveCanvas = document.getElementById('waveCanvas');
+const waveCtx = waveCanvas.getContext('2d');
+const waveWrap = document.getElementById('waveWrap');
+
+async function decodeAudioForWaveform(file){
+  const hint = document.getElementById('waveHint');
+  hint.textContent = 'decoding audio…';
+  try{
+    const arr = await file.arrayBuffer();
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    audioBuffer = await ctx.decodeAudioData(arr.slice(0));
+    hint.textContent = '';
+    drawWaveform();
+  } catch(err){
+    audioBuffer = null;
+    hint.textContent = 'no audio track detected / unsupported codec — timing still works via video';
+    drawWaveform();
+  }
+}
+
+function resizeWaveCanvas(){
+  const rect = waveWrap.getBoundingClientRect();
+  waveCanvas.width = Math.max(rect.width, (media.duration||0) * pxPerSec());
+  waveCanvas.height = rect.height;
+}
+function pxPerSec(){ return 60 * waveZoom; }
+
+function drawWaveform(){
+  if(!media.duration) return;
+  resizeWaveCanvas();
+  const w = waveCanvas.width, h = waveCanvas.height;
+  waveCtx.clearRect(0,0,w,h);
+  waveCtx.fillStyle = '#101012';
+  waveCtx.fillRect(0,0,w,h);
+
+  // draw peaks
+  if(audioBuffer){
+    const data = audioBuffer.getChannelData(0);
+    const totalSamples = data.length;
+    const samplesPerPx = totalSamples / w;
+    waveCtx.fillStyle = '#e8a33d';
+    const mid = h/2;
+    for(let x=0; x<w; x++){
+      const start = Math.floor(x*samplesPerPx);
+      const end = Math.floor(start+samplesPerPx)||start+1;
+      let min=1, max=-1;
+      for(let i=start; i<end && i<totalSamples; i++){
+        const v = data[i];
+        if(v<min) min=v;
+        if(v>max) max=v;
+      }
+      if(min>max){min=0;max=0;}
+      waveCtx.fillRect(x, mid + min*mid*0.9, 1, Math.max(1,(max-min)*mid*0.9));
+    }
+  } else {
+    waveCtx.strokeStyle = '#2a2b30';
+    waveCtx.beginPath();
+    waveCtx.moveTo(0,h/2); waveCtx.lineTo(w,h/2); waveCtx.stroke();
+  }
+
+  // draw subtitle regions
+  lines.forEach(l=>{
+    const x1 = l.start*pxPerSec(), x2 = l.end*pxPerSec();
+    const isSel = l.id===selectedId;
+    waveCtx.fillStyle = isSel ? 'rgba(232,163,61,0.35)' : 'rgba(232,163,61,0.14)';
+    waveCtx.fillRect(x1,0,Math.max(1,x2-x1),h);
+    waveCtx.fillStyle = isSel ? '#f0ad4f' : '#7a5c2e';
+    waveCtx.fillRect(x1,0,2,h);
+    waveCtx.fillRect(x2-2,0,2,h);
+  });
+
+  // playhead
+  const px = (media.currentTime||0)*pxPerSec();
+  waveCtx.fillStyle = '#e9e7e2';
+  waveCtx.fillRect(px,0,1.5,h);
+
+  // autoscroll to keep playhead visible
+  const rect = waveWrap.getBoundingClientRect();
+  if(px < waveWrap.scrollLeft || px > waveWrap.scrollLeft+rect.width){
+    waveWrap.scrollLeft = Math.max(0, px-40);
+  }
+}
+waveCanvas.addEventListener('click', (e)=>{
+  const rect = waveCanvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const t = x / pxPerSec();
+  media.currentTime = Math.min(media.duration||0, Math.max(0,t));
+  // select a line under this time if any
+  const hit = lines.find(l=> t>=l.start && t<=l.end);
+  if(hit) selectLine(hit.id);
+});
+document.getElementById('zoomIn').addEventListener('click', ()=>{ waveZoom = Math.min(8, waveZoom*1.5); drawWaveform(); });
+document.getElementById('zoomOut').addEventListener('click', ()=>{ waveZoom = Math.max(0.25, waveZoom/1.5); drawWaveform(); });
+window.addEventListener('resize', drawWaveform);
+
+/* ===================== Import / Export subtitle files ===================== */
+document.getElementById('subInput').addEventListener('change', function(e){
+  const f = e.target.files[0]; if(!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const text = reader.result;
+    let result;
+    if(/\.(ass|ssa)$/i.test(f.name)){
+      result = parseASS(text);
+      if(result.styles) styles = result.styles;
+    } else {
+      result = { lines: parseSRT(text) };
+    }
+    lines = result.lines;
+    selectedId = null;
+    renderStyles(); renderGrid(); renderLineEditor(); drawWaveform();
+  };
+  reader.readAsText(f);
+});
+function download(filename, content){
+  const blob = new Blob([content], {type:'text/plain;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+document.getElementById('exportSrt').addEventListener('click', ()=> download('subtitles.srt', exportSRT()));
+document.getElementById('exportAss').addEventListener('click', ()=> download('subtitles.ass', exportASS()));
+
+/* ===================== Init ===================== */
+addLine(0,2,"Welcome to Subtrack — start typing here.", styles[0].name);
+addLine(2.2,4.5,"Open a video, then use Set Start / Set End\nwhile it plays to time this line.", styles[0].name);
+renderStyles();
+renderGrid();
+renderLineEditor();
+</script>
+</body>
+</html>
