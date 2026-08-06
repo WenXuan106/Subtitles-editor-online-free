@@ -83,6 +83,8 @@
     display:inline-block; text-align:center; line-height:1.25; white-space:pre-wrap;
     max-width:100%;
   }
+  #overlay .cap .kw{color:#fff; transition:color .06s linear;}
+  #overlay .cap .kw-active{color:var(--amber);}
 
   /* ---- Transport ---- */
   #transport{
@@ -141,6 +143,29 @@
   }
   #lineEditor input[type=color]{width:30px; height:26px; padding:2px; cursor:pointer;}
 
+  /* ---- Karaoke word-timing panel ---- */
+  #karaokePanel{display:none; flex-direction:column; gap:6px; border-top:1px dashed var(--line); padding-top:7px; margin-top:2px;}
+  #kStatus{color:var(--dim); font-size:11px; font-family:var(--mono);}
+  #karaokeTrack{
+    position:relative; height:38px; background:var(--panel-2); border:1px solid var(--line);
+    border-radius:5px; overflow:hidden;
+  }
+  #karaokeTrack.empty::before{
+    content:"No words yet — click Even Split or AI Auto-Time"; position:absolute; inset:0;
+    display:flex; align-items:center; justify-content:center; color:#55565c; font-size:11px; font-family:var(--mono);
+  }
+  .kseg{
+    position:absolute; top:0; bottom:0; display:flex; align-items:center; justify-content:center;
+    font-family:var(--mono); font-size:11px; color:var(--text); background:rgba(232,163,61,0.10);
+    border-right:1px solid var(--line); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    padding:0 3px; cursor:pointer;
+  }
+  .kseg:hover{background:rgba(232,163,61,0.24);}
+  .kseg.playing{background:rgba(232,163,61,0.5); color:#1a1400;}
+  .khandle{position:absolute; top:0; bottom:0; width:9px; margin-left:-4.5px; cursor:ew-resize; z-index:3;}
+  .khandle::after{content:""; position:absolute; left:3.5px; top:0; bottom:0; width:2px; background:var(--amber);}
+  .khandle:hover::after, .khandle.active::after{background:#fff; width:3px; left:3px;}
+
   /* ---- Right panel: styles ---- */
   #right h3{margin:0; padding:10px 12px 8px; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); border-bottom:1px solid var(--line);}
   #styleList{overflow-y:auto; flex:1;}
@@ -155,14 +180,10 @@
     background:var(--panel-2); color:var(--text); border:1px solid var(--line); border-radius:4px;
     padding:3px 5px; font-size:11.5px; flex:1; min-width:0;
   }
-  .styleCard select.sfont{flex:1 1 100%; min-width:0;}
   .styleCard input[type=color]{width:26px; height:24px; padding:2px; border:1px solid var(--line); border-radius:4px; cursor:pointer; background:none;}
   .styleCard label.chk{color:var(--dim); font-size:11px; display:flex; align-items:center; gap:4px; white-space:nowrap;}
-  .styleCard label.fieldlbl{color:var(--dim); font-size:10.5px; display:flex; flex-direction:column; gap:2px; flex:1; min-width:0;}
   .styleCard .delStyle{margin-left:auto; color:var(--dim); cursor:pointer; font-size:11px;}
   .styleCard .delStyle:hover{color:var(--red);}
-  select{background:var(--panel-2); color:var(--text);}
-  select optgroup{color:var(--dim); font-style:normal;}
   #addStyleBtn{margin:8px 12px;}
   #zoomRow{display:flex; align-items:center; gap:4px; padding:6px 10px; border-top:1px solid var(--line);}
   #zoomRow span{color:var(--dim); font-size:11px;}
@@ -174,7 +195,6 @@
   <div class="brand">SUBTRACK <span>web subtitle editor</span></div>
   <label class="file-btn">Open Video/Audio<input type="file" id="mediaInput" accept="video/*,audio/*"></label>
   <label class="file-btn">Import .ass/.srt<input type="file" id="subInput" accept=".ass,.ssa,.srt"></label>
-  <label class="file-btn">Import Font<input type="file" id="fontInput" accept=".ttf,.otf,.woff,.woff2,.ttc" multiple></label>
   <div class="sep"></div>
   <button id="exportSrt">Export .srt</button>
   <button id="exportAss">Export .ass</button>
@@ -225,34 +245,25 @@
           <select id="lineStyleSel"></select>
         </label>
         <label><input type="checkbox" id="overrideChk"> Override style</label>
+        <label>Font <input type="text" id="ovFont" style="width:110px" placeholder="Arial"></label>
+        <label>Size <input type="number" id="ovSize" style="width:52px" value="28"></label>
+        <label>Color <input type="color" id="ovColor" value="#ffffff"></label>
+        <label><input type="checkbox" id="ovBold">B</label>
+        <label><input type="checkbox" id="ovItalic">I</label>
         <div class="sep"></div>
         <button id="dupLineBtn">Duplicate</button>
         <button id="delLineBtn">Delete line</button>
       </div>
       <div class="row">
-        <label>Font <select id="ovFont" style="width:140px"></select></label>
-        <label>Size <input type="number" id="ovSize" style="width:52px" value="28"></label>
-        <label>Weight
-          <select id="ovWeight" style="width:66px">
-            <option value="300">Light</option>
-            <option value="400" selected>Regular</option>
-            <option value="500">Medium</option>
-            <option value="600">Semibold</option>
-            <option value="700">Bold</option>
-            <option value="800">Extrabold</option>
-            <option value="900">Black</option>
-          </select>
-        </label>
-        <label><input type="checkbox" id="ovItalic">Italic</label>
-        <label>Spacing <input type="number" id="ovSpacing" style="width:46px" value="0" step="0.5"></label>
-        <label>Case
-          <select id="ovTransform" style="width:78px">
-            <option value="none">Normal</option>
-            <option value="uppercase">UPPER</option>
-            <option value="capitalize">Capitalize</option>
-          </select>
-        </label>
-        <label>Color <input type="color" id="ovColor" value="#ffffff"></label>
+        <label><input type="checkbox" id="karaokeChk"> Karaoke word timing</label>
+      </div>
+      <div id="karaokePanel">
+        <div class="row">
+          <button id="kEvenBtn">Even split</button>
+          <button id="kAiBtn">✨ AI Auto-Time (free, in-browser)</button>
+          <span id="kStatus"></span>
+        </div>
+        <div id="karaokeTrack"></div>
       </div>
     </div>
   </div>
@@ -272,10 +283,8 @@
 <script>
 /* ===================== State ===================== */
 let styles = [
-  { name:"Default", font:"Arial", size:28, color:"#ffffff", bold:false, italic:false, border:false, weight:400, letterSpacing:0, transform:'none' }
+  { name:"Default", font:"Arial", size:28, color:"#ffffff", bold:false, italic:false, border:false }
 ];
-let customFonts = []; // {name, url} — fonts imported by the user this session
-const loadedGoogleFonts = new Set();
 let lines = []; // {id,start,end,style,text,override:null|{font,size,color,bold,italic}}
 let nextId = 1;
 let selectedId = null;
@@ -290,94 +299,6 @@ const gridBody = document.getElementById('gridBody');
 const styleList = document.getElementById('styleList');
 const lineStyleSel = document.getElementById('lineStyleSel');
 const filestate = document.getElementById('filestate');
-
-/* ===================== Fonts ===================== */
-const SYSTEM_FONTS = [
-  "Arial","Helvetica","Times New Roman","Georgia","Verdana","Tahoma",
-  "Trebuchet MS","Courier New","Comic Sans MS","Impact","Segoe UI"
-];
-const GOOGLE_FONTS = [
-  "Roboto","Open Sans","Lato","Montserrat","Poppins","Oswald","Nunito","Raleway",
-  "Ubuntu","PT Sans","Noto Sans","Source Sans Pro","Inter","Work Sans","Rubik",
-  "Quicksand","Merriweather","Playfair Display","Fira Sans","Karla","Barlow",
-  "DM Sans","Space Grotesk","Mukta","Archivo Black","Bebas Neue","Anton",
-  "Roboto Mono","JetBrains Mono","Courier Prime","Caveat","Pacifico",
-  "Dancing Script","Lobster","Shrikhand","Bangers","Permanent Marker","Righteous"
-];
-
-function buildFontOptionsHTML(current){
-  const esc = s=>s.replace(/"/g,'&quot;');
-  let html = '';
-  if(current && !SYSTEM_FONTS.includes(current) && !GOOGLE_FONTS.includes(current) && !customFonts.find(f=>f.name===current)){
-    // preserve unknown fonts coming from an imported .ass file
-    html += `<option value="${esc(current)}" selected>${esc(current)} (imported file)</option>`;
-  }
-  if(customFonts.length){
-    html += `<optgroup label="Your fonts">${customFonts.map(f=>`<option value="${esc(f.name)}" ${f.name===current?'selected':''}>${esc(f.name)}</option>`).join('')}</optgroup>`;
-  }
-  html += `<optgroup label="System">${SYSTEM_FONTS.map(f=>`<option value="${esc(f)}" ${f===current?'selected':''}>${esc(f)}</option>`).join('')}</optgroup>`;
-  html += `<optgroup label="Google Fonts">${GOOGLE_FONTS.map(f=>`<option value="${esc(f)}" ${f===current?'selected':''}>${esc(f)}</option>`).join('')}</optgroup>`;
-  return html;
-}
-function buildWeightOptionsHTML(current){
-  const opts = [[100,'Thin'],[200,'Extralight'],[300,'Light'],[400,'Regular'],[500,'Medium'],[600,'Semibold'],[700,'Bold'],[800,'Extrabold'],[900,'Black']];
-  return opts.map(([v,l])=>`<option value="${v}" ${v===current?'selected':''}>${l}</option>`).join('');
-}
-function buildTransformOptionsHTML(current){
-  const opts = [['none','Normal'],['uppercase','UPPER'],['capitalize','Capitalize']];
-  return opts.map(([v,l])=>`<option value="${v}" ${v===current?'selected':''}>${l}</option>`).join('');
-}
-
-// Load a Google Font on demand via a <link>, or resolve immediately for system/custom fonts
-function ensureFontLoaded(name){
-  if(!name) return Promise.resolve();
-  if(SYSTEM_FONTS.includes(name)) return Promise.resolve();
-  if(customFonts.find(f=>f.name===name)) return document.fonts.ready;
-  if(loadedGoogleFonts.has(name)) return document.fonts.ready;
-  if(!GOOGLE_FONTS.includes(name)) return Promise.resolve(); // unknown font, let the browser fall back
-  loadedGoogleFonts.add(name);
-  const link = document.createElement('link');
-  link.rel = 'stylesheet';
-  link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(name).replace(/%20/g,'+')}:ital,wght@0,300;0,400;0,500;0,600;0,700;0,900;1,400;1,700&display=swap`;
-  document.head.appendChild(link);
-  return new Promise(res=>{ link.onload = ()=>res(); link.onerror = ()=>res(); setTimeout(res, 1500); }).then(()=>document.fonts.ready);
-}
-
-function refreshAllFontSelects(){
-  document.querySelectorAll('#styleList select.sfont').forEach(sel=>{
-    const idx = [...styleList.querySelectorAll('.styleCard')].indexOf(sel.closest('.styleCard'));
-    if(idx>-1) sel.innerHTML = buildFontOptionsHTML(styles[idx].font);
-  });
-  const ovSel = document.getElementById('ovFont');
-  if(ovSel){ const l = getSelected(); const cur = l ? (l.override ? l.override.font : getStyle(l.style).font) : null; ovSel.innerHTML = buildFontOptionsHTML(cur); }
-}
-
-document.getElementById('fontInput').addEventListener('change', function(e){
-  const files = [...e.target.files];
-  if(!files.length) return;
-  let loaded = 0;
-  files.forEach(file=>{
-    const reader = new FileReader();
-    reader.onload = () => {
-      const buf = reader.result;
-      const guessedName = file.name.replace(/\.[^.]+$/,'').replace(/[-_]+/g,' ').trim();
-      const face = new FontFace(guessedName, buf);
-      face.load().then(loadedFace=>{
-        document.fonts.add(loadedFace);
-        if(!customFonts.find(f=>f.name===guessedName)) customFonts.push({name:guessedName});
-        loaded++;
-        refreshAllFontSelects();
-        renderOverlay();
-        filestate.textContent = `imported font: ${guessedName}`;
-      }).catch(err=>{
-        console.error('Font load failed', file.name, err);
-        filestate.textContent = `couldn't load font: ${file.name}`;
-      });
-    };
-    reader.readAsArrayBuffer(file);
-  });
-  e.target.value = '';
-});
 
 /* ===================== Time helpers ===================== */
 function fmtHMS(sec, msDigits, msSep){
@@ -427,11 +348,11 @@ function assColorToHex(ass){
 }
 
 /* ===================== Model helpers ===================== */
-function addStyle(s){ styles.push(Object.assign({name:"Style"+styles.length,font:"Arial",size:28,color:"#ffffff",bold:false,italic:false,border:false,weight:400,letterSpacing:0,transform:'none'}, s||{})); }
+function addStyle(s){ styles.push(Object.assign({name:"Style"+styles.length,font:"Arial",size:28,color:"#ffffff",bold:false,italic:false,border:false}, s||{})); }
 function getStyle(name){ return styles.find(s=>s.name===name) || styles[0]; }
 
 function addLine(start,end,text,styleName){
-  const l = { id: nextId++, start: start||0, end: end||(start||0)+2, text: text||"New subtitle", style: styleName||styles[0].name, override:null };
+  const l = { id: nextId++, start: start||0, end: end||(start||0)+2, text: text||"New subtitle", style: styleName||styles[0].name, override:null, karaoke:null };
   lines.push(l);
   lines.sort((a,b)=>a.start-b.start);
   return l;
@@ -461,21 +382,15 @@ function parseASS(text){
         const parts = line.substring(line.indexOf(':')+1).split(',').map(s=>s.trim());
         const obj = {};
         (styleFmt||[]).forEach((f,i)=> obj[f]=parts[i]);
-        {
-          const isBold = obj.bold === '-1' || obj.bold === '1';
-          newStyles.push({
-            name: obj.name || ('Style'+(newStyles.length+1)),
-            font: obj.fontname || 'Arial',
-            size: parseInt(obj.fontsize)||28,
-            color: obj.primarycolour ? assColorToHex(obj.primarycolour) : '#ffffff',
-            bold: isBold,
-            italic: obj.italic === '-1' || obj.italic === '1',
-            border: obj.outline ? (parseFloat(obj.outline) > 0) : false,
-            weight: isBold ? 700 : 400,
-            letterSpacing: obj.spacing ? parseFloat(obj.spacing)||0 : 0,
-            transform: 'none'
-          });
-        }
+        newStyles.push({
+          name: obj.name || ('Style'+(newStyles.length+1)),
+          font: obj.fontname || 'Arial',
+          size: parseInt(obj.fontsize)||28,
+          color: obj.primarycolour ? assColorToHex(obj.primarycolour) : '#ffffff',
+          bold: obj.bold === '-1' || obj.bold === '1',
+          italic: obj.italic === '-1' || obj.italic === '1',
+          border: obj.outline ? (parseFloat(obj.outline) > 0) : false
+        });
       }
     } else if(section && section.includes('events')){
       if(/^format:/i.test(line)){
@@ -495,7 +410,8 @@ function parseASS(text){
           end: parseAssTime(obj.end||'0:00:02.00'),
           text: clean,
           style: obj.style || 'Default',
-          override: null
+          override: null,
+          karaoke: null
         });
       }
     }
@@ -518,26 +434,30 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
     const col = hexToAssColor(s.color);
     const outline = s.border ? 2 : 0;
     const shadow = s.border ? 1 : 0;
-    const isBold = (s.weight||(s.bold?700:400)) >= 600;
-    const spacing = s.letterSpacing||0;
-    return `Style: ${s.name},${s.font},${s.size},${col},&H000000FF&,&H00000000&,&H00000000&,${isBold?-1:0},${s.italic?-1:0},0,0,100,100,${spacing},0,1,${outline},${shadow},2,10,10,10,1`;
+    return `Style: ${s.name},${s.font},${s.size},${col},&H000000FF&,&H00000000&,&H00000000&,${s.bold?-1:0},${s.italic?-1:0},0,0,100,100,0,0,1,${outline},${shadow},2,10,10,10,1`;
   }).join('\n');
   const evHeader = `\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n`;
+  function escapeAssText(s){ return s.replace(/\\/g,'').replace(/\{/g,'').replace(/\}/g,''); }
+  function karaokeAssText(l){
+    return l.karaoke.map(w=>{
+      const cs = Math.max(1, Math.round((w.end-w.start)*100));
+      return `{\\k${cs}}${escapeAssText(w.text)}`;
+    }).join(' ');
+  }
   const sorted = [...lines].sort((a,b)=>a.start-b.start);
   const evLines = sorted.map(l=>{
     let prefix = '';
     if(l.override){
       const ov = l.override;
-      const ovBold = (ov.weight||(ov.bold?700:400)) >= 600;
       if(ov.font) prefix += `\\fn${ov.font}`;
       if(ov.size) prefix += `\\fs${ov.size}`;
       if(ov.color) prefix += `\\c${hexToAssColor(ov.color).replace('&H','&H').replace(/&$/,'')}&`;
-      if(ovBold) prefix += `\\b1`;
+      if(ov.bold) prefix += `\\b1`;
       if(ov.italic) prefix += `\\i1`;
-      if(ov.letterSpacing) prefix += `\\fsp${ov.letterSpacing}`;
       if(prefix) prefix = `{${prefix}}`;
     }
-    const text = prefix + l.text.replace(/\n/g,'\\N');
+    const body = (l.karaoke && l.karaoke.length) ? karaokeAssText(l) : l.text.replace(/\n/g,'\\N');
+    const text = prefix + body;
     return `Dialogue: 0,${toAssTime(l.start)},${toAssTime(l.end)},${l.style},,0,0,0,,${text}`;
   }).join('\n');
   return header + styleLines + evHeader + evLines + '\n';
@@ -557,7 +477,7 @@ function parseSRT(text){
     const start = parseSrtTime(m[1]);
     const end = parseSrtTime(m[2]);
     const text_ = rows.slice(i+1).join('\n').replace(/<\/?[^>]+>/g,'');
-    newLines.push({ id: nextId++, start, end, text: text_, style:'Default', override:null });
+    newLines.push({ id: nextId++, start, end, text: text_, style:'Default', override:null, karaoke:null });
   }
   return newLines;
 }
@@ -579,7 +499,7 @@ function renderGrid(){
       <td class="time">${short(l.start)}</td>
       <td class="time">${short(l.end)}</td>
       <td class="style">${l.style}</td>
-      <td class="txt"><div class="capline">${l.text.replace(/\n/g,' ⏎ ')}</div></td>
+      <td class="txt"><div class="capline">${(l.karaoke&&l.karaoke.length)?'🎤 ':''}${l.text.replace(/\n/g,' ⏎ ')}</div></td>
       <td class="del"><span title="Delete">✕</span></td>
     `;
     tr.addEventListener('click', (e)=>{
@@ -612,25 +532,23 @@ function renderLineEditor(){
   document.getElementById('dupLineBtn').disabled = disabled;
   document.getElementById('delLineBtn').disabled = disabled;
   renderStyleOptions(lineStyleSel);
-  if(!l){ document.getElementById('lineText').value=''; return; }
+  if(!l){ document.getElementById('lineText').value=''; renderKaraokePanel(); return; }
   document.getElementById('lineText').value = l.text;
   lineStyleSel.value = l.style;
   const ov = l.override;
   document.getElementById('overrideChk').checked = !!ov;
   const st = getStyle(l.style);
-  const eff = ov ? Object.assign({}, st, ov) : st;
-  document.getElementById('ovFont').innerHTML = buildFontOptionsHTML(eff.font);
-  document.getElementById('ovSize').value = eff.size;
-  document.getElementById('ovColor').value = eff.color;
-  document.getElementById('ovWeight').value = eff.weight||400;
-  document.getElementById('ovItalic').checked = eff.italic;
-  document.getElementById('ovSpacing').value = eff.letterSpacing||0;
-  document.getElementById('ovTransform').value = eff.transform||'none';
+  document.getElementById('ovFont').value = ov ? ov.font : st.font;
+  document.getElementById('ovSize').value = ov ? ov.size : st.size;
+  document.getElementById('ovColor').value = ov ? ov.color : st.color;
+  document.getElementById('ovBold').checked = ov ? ov.bold : st.bold;
+  document.getElementById('ovItalic').checked = ov ? ov.italic : st.italic;
   toggleOverrideInputs();
+  renderKaraokePanel();
 }
 function toggleOverrideInputs(){
   const on = document.getElementById('overrideChk').checked;
-  ['ovFont','ovSize','ovColor','ovWeight','ovItalic','ovSpacing','ovTransform'].forEach(id=>{
+  ['ovFont','ovSize','ovColor','ovBold','ovItalic'].forEach(id=>{
     document.getElementById(id).disabled = !on;
   });
 }
@@ -639,23 +557,18 @@ document.getElementById('overrideChk').addEventListener('change', function(){
   toggleOverrideInputs();
   if(this.checked){
     const st = getStyle(l.style);
-    l.override = { font: st.font, size: st.size, color: st.color, bold: st.bold, italic: st.italic, weight: st.weight||400, letterSpacing: st.letterSpacing||0, transform: st.transform||'none' };
+    l.override = { font: st.font, size: st.size, color: st.color, bold: st.bold, italic: st.italic };
   } else { l.override = null; }
   renderLineEditor(); renderGrid();
 });
-['ovFont','ovSize','ovColor','ovWeight','ovItalic','ovSpacing','ovTransform'].forEach(id=>{
-  const evt = (id==='ovFont'||id==='ovWeight'||id==='ovTransform') ? 'change' : 'input';
-  document.getElementById(id).addEventListener(evt, function(){
+['ovFont','ovSize','ovColor','ovBold','ovItalic'].forEach(id=>{
+  document.getElementById(id).addEventListener('input', function(){
     const l = getSelected(); if(!l || !l.override) return;
     l.override.font = document.getElementById('ovFont').value || 'Arial';
     l.override.size = parseInt(document.getElementById('ovSize').value)||28;
     l.override.color = document.getElementById('ovColor').value;
-    l.override.weight = parseInt(document.getElementById('ovWeight').value)||400;
-    l.override.bold = l.override.weight>=600;
+    l.override.bold = document.getElementById('ovBold').checked;
     l.override.italic = document.getElementById('ovItalic').checked;
-    l.override.letterSpacing = parseFloat(document.getElementById('ovSpacing').value)||0;
-    l.override.transform = document.getElementById('ovTransform').value;
-    if(id==='ovFont') ensureFontLoaded(l.override.font).then(renderOverlay);
     renderOverlay();
   });
 });
@@ -663,6 +576,10 @@ document.getElementById('lineText').addEventListener('input', function(){
   const l = getSelected(); if(!l) return;
   l.text = this.value;
   renderGrid(); renderOverlay();
+  if(l.karaoke && l.karaoke.length){
+    const wc = wordsOf(l.text).length;
+    if(wc !== l.karaoke.length) setKaraokeStatus(`Text now has ${wc} words — click "Even split" or "AI Auto-Time" to resync.`);
+  }
 });
 lineStyleSel.addEventListener('change', function(){
   const l = getSelected(); if(!l) return;
@@ -674,6 +591,7 @@ document.getElementById('dupLineBtn').addEventListener('click', ()=>{
   const dur = l.end-l.start;
   const nl = addLine(l.end, l.end+dur, l.text, l.style);
   nl.override = l.override ? {...l.override} : null;
+  nl.karaoke = (l.karaoke && l.karaoke.length) ? l.karaoke.map(w=>({text:w.text, start:w.start-l.start+nl.start, end:w.end-l.start+nl.start})) : null;
   selectLine(nl.id); drawWaveform();
 });
 document.getElementById('delLineBtn').addEventListener('click', ()=>{
@@ -689,15 +607,19 @@ document.getElementById('addLineBtn').addEventListener('click', ()=>{
 });
 document.getElementById('setStartBtn').addEventListener('click', ()=>{
   const l = getSelected(); if(!l) return;
+  const oldStart=l.start, oldEnd=l.end;
   l.start = media.currentTime||0;
   if(l.start > l.end) l.end = l.start + 1;
-  renderGrid(); drawWaveform();
+  rescaleKaraoke(l, oldStart, oldEnd);
+  renderGrid(); renderKaraokePanel(); drawWaveform();
 });
 document.getElementById('setEndBtn').addEventListener('click', ()=>{
   const l = getSelected(); if(!l) return;
+  const oldStart=l.start, oldEnd=l.end;
   l.end = media.currentTime||0;
   if(l.end < l.start) l.start = Math.max(0, l.end-1);
-  renderGrid(); drawWaveform();
+  rescaleKaraoke(l, oldStart, oldEnd);
+  renderGrid(); renderKaraokePanel(); drawWaveform();
 });
 
 /* ===================== Styles panel ===================== */
@@ -709,22 +631,14 @@ function renderStyles(){
     card.innerHTML = `
       <input class="sname" value="${s.name}">
       <div class="srow">
-        <select class="sfont">${buildFontOptionsHTML(s.font)}</select>
+        <input type="text" class="sfont" value="${s.font}" placeholder="Font family">
+        <input type="number" class="ssize" value="${s.size}" style="max-width:52px;">
+        <input type="color" class="scolor" value="${s.color}">
       </div>
       <div class="srow">
-        <label class="fieldlbl">Size<input type="number" class="ssize" value="${s.size}"></label>
-        <label class="fieldlbl">Weight
-          <select class="sweight">${buildWeightOptionsHTML(s.weight||400)}</select>
-        </label>
-        <label class="fieldlbl">Spacing<input type="number" class="sspacing" value="${s.letterSpacing||0}" step="0.5"></label>
-        <input type="color" class="scolor" value="${s.color}" title="Text color">
-      </div>
-      <div class="srow">
+        <label class="chk"><input type="checkbox" class="sbold" ${s.bold?'checked':''}> Bold</label>
         <label class="chk"><input type="checkbox" class="sitalic" ${s.italic?'checked':''}> Italic</label>
         <label class="chk"><input type="checkbox" class="sborder" ${s.border?'checked':''}> Border</label>
-        <label class="chk">Case
-          <select class="stransform" style="flex:0 0 auto;">${buildTransformOptionsHTML(s.transform||'none')}</select>
-        </label>
         ${styles.length>1?'<span class="delStyle">Remove</span>':''}
       </div>
     `;
@@ -733,14 +647,12 @@ function renderStyles(){
       lines.forEach(l=>{ if(l.style===old) l.style=s.name; });
       renderLineEditor(); renderGrid(); renderStyles();
     });
-    card.querySelector('.sfont').addEventListener('change', function(){ s.font=this.value; ensureFontLoaded(s.font).then(renderOverlay); renderOverlay(); renderLineEditor(); });
+    card.querySelector('.sfont').addEventListener('input', function(){ s.font=this.value; renderOverlay(); renderLineEditor(); });
     card.querySelector('.ssize').addEventListener('input', function(){ s.size=parseInt(this.value)||28; renderOverlay(); renderLineEditor(); });
-    card.querySelector('.sweight').addEventListener('change', function(){ s.weight=parseInt(this.value)||400; s.bold = s.weight>=600; renderOverlay(); });
-    card.querySelector('.sspacing').addEventListener('input', function(){ s.letterSpacing=parseFloat(this.value)||0; renderOverlay(); });
     card.querySelector('.scolor').addEventListener('input', function(){ s.color=this.value; renderOverlay(); renderLineEditor(); });
+    card.querySelector('.sbold').addEventListener('change', function(){ s.bold=this.checked; renderOverlay(); });
     card.querySelector('.sitalic').addEventListener('change', function(){ s.italic=this.checked; renderOverlay(); });
     card.querySelector('.sborder').addEventListener('change', function(){ s.border=this.checked; renderOverlay(); });
-    card.querySelector('.stransform').addEventListener('change', function(){ s.transform=this.value; renderOverlay(); });
     const delBtn = card.querySelector('.delStyle');
     if(delBtn) delBtn.addEventListener('click', ()=>{
       const fallback = styles.find(x=>x.name!==s.name).name;
@@ -759,11 +671,9 @@ document.getElementById('addStyleBtn').addEventListener('click', ()=>{
 /* ===================== Overlay rendering (no border by default) ===================== */
 function applyCapStyle(el, st){
   el.style.fontFamily = `"${st.font}", sans-serif`;
-  el.style.fontWeight = st.weight || (st.bold ? '700':'400');
+  el.style.fontWeight = st.bold ? '700':'400';
   el.style.fontStyle = st.italic ? 'italic':'normal';
   el.style.color = st.color;
-  el.style.letterSpacing = (st.letterSpacing||0) + 'px';
-  el.style.textTransform = st.transform || 'none';
   const boxW = videoWrap.clientWidth || 960;
   const px = Math.max(10, st.size * (boxW/960));
   el.style.fontSize = px + 'px';
@@ -781,11 +691,224 @@ function renderOverlay(){
   if(!active.length){ capEl.textContent=''; return; }
   const l = active[active.length-1];
   const st = l.override ? Object.assign({}, getStyle(l.style), l.override) : getStyle(l.style);
-  capEl.innerHTML = l.text.split('\n').map(x=>escapeHtml(x)).join('<br>');
   applyCapStyle(capEl, st);
-  ensureFontLoaded(st.font).then(()=> applyCapStyle(capEl, st)); // re-apply once the webfont is actually available
+  if(l.karaoke && l.karaoke.length){
+    capEl.innerHTML = l.karaoke.map(w=>{
+      const cur = t>=w.start && t<w.end;
+      return `<span class="kw${cur?' kw-active':''}">${escapeHtml(w.text)}</span>`;
+    }).join(' ');
+    highlightKaraokeTrack(t, l);
+  } else {
+    capEl.innerHTML = l.text.split('\n').map(x=>escapeHtml(x)).join('<br>');
+  }
 }
 function escapeHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+/* ===================== Karaoke word timing ===================== */
+function wordsOf(text){ return text.replace(/\n/g,' ').trim().split(/\s+/).filter(Boolean); }
+
+// Distribute a line's words evenly (weighted by character length) across its start/end.
+function autoSplitKaraoke(l){
+  const words = wordsOf(l.text);
+  if(!words.length){ l.karaoke = []; return; }
+  const totalChars = words.reduce((a,w)=>a+w.length,0) || words.length;
+  const dur = Math.max(0.01, l.end-l.start);
+  let t = l.start;
+  l.karaoke = words.map((w,i)=>{
+    const share = (w.length/totalChars) * dur;
+    const start = t;
+    const end = (i===words.length-1) ? l.start+dur : t+share;
+    t = end;
+    return {text:w, start, end};
+  });
+}
+
+// Keep word timings proportionally inside the line when Set Start/Set End moves the boundaries.
+function rescaleKaraoke(l, oldStart, oldEnd){
+  if(!l.karaoke || !l.karaoke.length) return;
+  const oldDur = Math.max(0.001, oldEnd-oldStart);
+  const newDur = Math.max(0.001, l.end-l.start);
+  l.karaoke.forEach(w=>{
+    const relStart = (w.start-oldStart)/oldDur;
+    const relEnd = (w.end-oldStart)/oldDur;
+    w.start = l.start + relStart*newDur;
+    w.end = l.start + relEnd*newDur;
+  });
+  l.karaoke[0].start = l.start;
+  l.karaoke[l.karaoke.length-1].end = l.end;
+}
+
+function setKaraokeStatus(msg){ const el=document.getElementById('kStatus'); if(el) el.textContent = msg||''; }
+
+const karaokeChk = document.getElementById('karaokeChk');
+const karaokePanel = document.getElementById('karaokePanel');
+const karaokeTrack = document.getElementById('karaokeTrack');
+
+function renderKaraokePanel(){
+  const l = getSelected();
+  if(!l){ karaokeChk.disabled = true; karaokeChk.checked = false; karaokePanel.style.display='none'; return; }
+  karaokeChk.disabled = false;
+  karaokeChk.checked = !!(l.karaoke && l.karaoke.length);
+  karaokePanel.style.display = karaokeChk.checked ? 'flex' : 'none';
+  karaokeTrack.innerHTML = '';
+  const words = l.karaoke || [];
+  karaokeTrack.classList.toggle('empty', words.length===0);
+  const dur = Math.max(0.01, l.end-l.start);
+  words.forEach((w,i)=>{
+    const seg = document.createElement('div');
+    seg.className = 'kseg';
+    seg.dataset.idx = i;
+    const x1 = (w.start-l.start)/dur*100;
+    const x2 = (w.end-l.start)/dur*100;
+    seg.style.left = x1+'%';
+    seg.style.width = Math.max(0.4,(x2-x1))+'%';
+    seg.textContent = w.text;
+    seg.title = `${w.text}: ${w.start.toFixed(2)}s – ${w.end.toFixed(2)}s (click to seek)`;
+    seg.addEventListener('click', ()=>{ if(media.duration) media.currentTime = w.start; });
+    karaokeTrack.appendChild(seg);
+    if(i < words.length-1){
+      const handle = document.createElement('div');
+      handle.className = 'khandle';
+      handle.style.left = x2+'%';
+      handle.addEventListener('mousedown', (e)=> startDragBoundary(e, l, i, handle));
+      karaokeTrack.appendChild(handle);
+    }
+  });
+}
+
+function highlightKaraokeTrack(t, l){
+  if(getSelected() !== l) return;
+  const segs = karaokeTrack.querySelectorAll('.kseg');
+  segs.forEach(seg=>{
+    const w = l.karaoke[+seg.dataset.idx];
+    seg.classList.toggle('playing', w && t>=w.start && t<w.end);
+  });
+}
+
+let dragCtx = null;
+function startDragBoundary(e, l, idx, handleEl){
+  e.preventDefault();
+  dragCtx = { l, idx, rect: karaokeTrack.getBoundingClientRect(), handleEl };
+  handleEl.classList.add('active');
+  window.addEventListener('mousemove', onDragBoundary);
+  window.addEventListener('mouseup', endDragBoundary);
+}
+function onDragBoundary(e){
+  if(!dragCtx) return;
+  const { l, idx, rect } = dragCtx;
+  const dur = Math.max(0.01, l.end-l.start);
+  let t = l.start + ((e.clientX-rect.left)/rect.width) * dur;
+  const minGap = 0.03;
+  const lo = l.karaoke[idx].start + minGap;
+  const hi = l.karaoke[idx+1].end - minGap;
+  t = Math.max(lo, Math.min(hi, t));
+  l.karaoke[idx].end = t;
+  l.karaoke[idx+1].start = t;
+  renderKaraokePanel();
+  renderOverlay();
+}
+function endDragBoundary(){
+  if(dragCtx && dragCtx.handleEl) dragCtx.handleEl.classList.remove('active');
+  dragCtx = null;
+  window.removeEventListener('mousemove', onDragBoundary);
+  window.removeEventListener('mouseup', endDragBoundary);
+}
+
+karaokeChk.addEventListener('change', function(){
+  const l = getSelected(); if(!l) return;
+  if(this.checked){
+    if(!l.karaoke || !l.karaoke.length) autoSplitKaraoke(l);
+    setKaraokeStatus('');
+  } else {
+    l.karaoke = null;
+  }
+  renderKaraokePanel(); renderOverlay(); renderGrid();
+});
+document.getElementById('kEvenBtn').addEventListener('click', ()=>{
+  const l = getSelected(); if(!l) return;
+  autoSplitKaraoke(l);
+  setKaraokeStatus(`Split ${l.karaoke.length} words evenly — drag the amber handles to fine-tune.`);
+  renderKaraokePanel(); renderOverlay(); renderGrid();
+});
+
+/* ---- Free, in-browser AI word timing (Whisper via transformers.js, WASM — no API key, no server) ---- */
+let asrPipelinePromise = null;
+async function getAsrPipeline(){
+  if(asrPipelinePromise) return asrPipelinePromise;
+  asrPipelinePromise = (async ()=>{
+    setKaraokeStatus('loading AI engine…');
+    const mod = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
+    setKaraokeStatus('downloading Whisper model (first time only, ~40MB)…');
+    return await mod.pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny.en');
+  })();
+  return asrPipelinePromise;
+}
+function extractSegmentFloat32(startSec, endSec){
+  if(!audioBuffer) return null;
+  const sr = audioBuffer.sampleRate;
+  const ch0 = audioBuffer.getChannelData(0);
+  let mono = ch0;
+  if(audioBuffer.numberOfChannels > 1){
+    const ch1 = audioBuffer.getChannelData(1);
+    mono = new Float32Array(ch0.length);
+    for(let i=0;i<ch0.length;i++) mono[i] = (ch0[i]+ch1[i])/2;
+  }
+  const s = Math.max(0, Math.floor(startSec*sr));
+  const e = Math.min(mono.length, Math.ceil(endSec*sr));
+  const seg = mono.subarray(s, Math.max(s+1,e));
+  const targetSr = 16000;
+  if(sr === targetSr) return seg.slice();
+  const ratio = sr/targetSr;
+  const outLen = Math.max(1, Math.floor(seg.length/ratio));
+  const out = new Float32Array(outLen);
+  for(let i=0;i<outLen;i++){
+    const srcIdx = i*ratio;
+    const i0 = Math.floor(srcIdx), i1 = Math.min(seg.length-1, i0+1);
+    const frac = srcIdx-i0;
+    out[i] = seg[i0]*(1-frac) + seg[i1]*frac;
+  }
+  return out;
+}
+async function aiAutoTimeWords(l){
+  const words = wordsOf(l.text);
+  if(!words.length) return;
+  if(!audioBuffer){
+    setKaraokeStatus('No decoded audio track — cannot run AI timing. Using even split instead.');
+    autoSplitKaraoke(l); renderKaraokePanel(); renderOverlay(); renderGrid();
+    return;
+  }
+  document.getElementById('kAiBtn').disabled = true;
+  try{
+    const asr = await getAsrPipeline();
+    setKaraokeStatus('analyzing audio…');
+    const audioData = extractSegmentFloat32(l.start, l.end);
+    const result = await asr(audioData, { return_timestamps:'word', chunk_length_s:30 });
+    const chunks = (result && result.chunks) || [];
+    if(chunks.length === words.length){
+      l.karaoke = chunks.map((c,i)=>{
+        const t0 = c.timestamp && c.timestamp[0]!=null ? c.timestamp[0] : 0;
+        const t1 = c.timestamp && c.timestamp[1]!=null ? c.timestamp[1] : t0+0.3;
+        return { text: words[i], start: l.start+Math.max(0,t0), end: l.start+Math.max(t0+0.05,t1) };
+      });
+      l.karaoke[0].start = l.start;
+      l.karaoke[l.karaoke.length-1].end = l.end;
+      setKaraokeStatus(`AI timed ${chunks.length} words from audio.`);
+    } else {
+      setKaraokeStatus(`AI heard ${chunks.length} words but the line has ${words.length} — used even split, please fine-tune by dragging.`);
+      autoSplitKaraoke(l);
+    }
+  } catch(err){
+    console.error(err);
+    setKaraokeStatus('AI timing failed (offline, or model blocked) — using even split instead.');
+    autoSplitKaraoke(l);
+  }
+  document.getElementById('kAiBtn').disabled = false;
+  renderKaraokePanel(); renderOverlay(); renderGrid();
+}
+document.getElementById('kAiBtn').addEventListener('click', ()=>{
+  const l = getSelected(); if(!l) return;
+  aiAutoTimeWords(l);
+});
 
 /* ===================== Media loading ===================== */
 const AUDIO_EXT = /\.(mp3|wav|m4a|aac|ogg|oga|flac|weba|opus)$/i;
@@ -965,20 +1088,11 @@ document.getElementById('subInput').addEventListener('change', function(e){
   reader.readAsText(f);
 });
 function download(filename, content){
-  // Safari ignores the `download` filename for text/plain blobs and saves everything
-  // as .txt — application/octet-stream stops it from guessing an extension.
-  const blob = new Blob([content], {type:'application/octet-stream'});
-  const url = URL.createObjectURL(blob);
+  const blob = new Blob([content], {type:'text/plain;charset=utf-8'});
   const a = document.createElement('a');
-  a.href = url;
+  a.href = URL.createObjectURL(blob);
   a.download = filename;
-  a.rel = 'noopener';
-  a.style.display = 'none';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  // revoke on a delay — Safari can abort the download if the URL is revoked immediately
-  setTimeout(()=> URL.revokeObjectURL(url), 4000);
+  document.body.appendChild(a); a.click(); a.remove();
 }
 document.getElementById('exportSrt').addEventListener('click', ()=> download('subtitles.srt', exportSRT()));
 document.getElementById('exportAss').addEventListener('click', ()=> download('subtitles.ass', exportASS()));
