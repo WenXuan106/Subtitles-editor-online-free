@@ -14,6 +14,7 @@
     --amber:#e8a33d;
     --amber-dim:#a66f22;
     --red:#d9614f;
+    --karaoke-color:#e8a33d;
     --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     --ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   }
@@ -84,7 +85,7 @@
     max-width:100%;
   }
   #overlay .cap .kw{color:#fff; transition:color .06s linear;}
-  #overlay .cap .kw-active{color:var(--amber);}
+  #overlay .cap .kw-active{color:var(--karaoke-color);}
 
   /* ---- Transport ---- */
   #transport{
@@ -156,14 +157,14 @@
   }
   .kseg{
     position:absolute; top:0; bottom:0; display:flex; align-items:center; justify-content:center;
-    font-family:var(--mono); font-size:11px; color:var(--text); background:rgba(232,163,61,0.10);
+    font-family:var(--mono); font-size:11px; color:var(--text); background:color-mix(in srgb, var(--karaoke-color) 12%, transparent);
     border-right:1px solid var(--line); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
     padding:0 3px; cursor:pointer;
   }
-  .kseg:hover{background:rgba(232,163,61,0.24);}
-  .kseg.playing{background:rgba(232,163,61,0.5); color:#1a1400;}
+  .kseg:hover{background:color-mix(in srgb, var(--karaoke-color) 28%, transparent);}
+  .kseg.playing{background:color-mix(in srgb, var(--karaoke-color) 55%, transparent); color:#1a1400;}
   .khandle{position:absolute; top:0; bottom:0; width:9px; margin-left:-4.5px; cursor:ew-resize; z-index:3;}
-  .khandle::after{content:""; position:absolute; left:3.5px; top:0; bottom:0; width:2px; background:var(--amber);}
+  .khandle::after{content:""; position:absolute; left:3.5px; top:0; bottom:0; width:2px; background:var(--karaoke-color);}
   .khandle:hover::after, .khandle.active::after{background:#fff; width:3px; left:3px;}
 
   /* ---- Right panel: styles ---- */
@@ -185,6 +186,14 @@
   .styleCard .delStyle{margin-left:auto; color:var(--dim); cursor:pointer; font-size:11px;}
   .styleCard .delStyle:hover{color:var(--red);}
   #addStyleBtn{margin:8px 12px;}
+  #karaokeGlobal{padding:10px 12px; display:flex; flex-direction:column; gap:8px; border-bottom:1px solid var(--line);}
+  #karaokeGlobal .row{display:flex; align-items:center; gap:8px;}
+  #karaokeGlobal label{color:var(--dim); font-size:11px; display:flex; align-items:center; gap:6px;}
+  #karaokeGlobal label.chk{font-size:11px;}
+  #karaokeGlobal input[type=color]{width:32px; height:26px; padding:2px; border:1px solid var(--line); border-radius:4px; cursor:pointer; background:none;}
+  #applyKaraokeAllBtn{background:var(--amber); color:#1a1400; border-color:var(--amber); font-weight:600;}
+  #applyKaraokeAllBtn:hover{background:#f0ad4f;}
+  #karaokeGlobalStatus{color:var(--dim); font-size:11px; font-family:var(--mono);}
   #zoomRow{display:flex; align-items:center; gap:4px; padding:6px 10px; border-top:1px solid var(--line);}
   #zoomRow span{color:var(--dim); font-size:11px;}
 </style>
@@ -272,6 +281,17 @@
     <h3>Styles</h3>
     <div id="styleList"></div>
     <button id="addStyleBtn">+ Add style</button>
+
+    <h3>Karaoke</h3>
+    <div id="karaokeGlobal">
+      <div class="row">
+        <label>Highlight <input type="color" id="karaokeColorInput" value="#e8a33d"></label>
+      </div>
+      <button id="applyKaraokeAllBtn">Apply to all lines</button>
+      <label class="chk" style="margin-top:6px;"><input type="checkbox" id="karaokeAutoNewChk"> Auto-apply to new lines</label>
+      <span id="karaokeGlobalStatus"></span>
+    </div>
+
     <div id="zoomRow">
       <span>Waveform zoom</span>
       <button id="zoomOut">–</button>
@@ -289,6 +309,8 @@ let lines = []; // {id,start,end,style,text,override:null|{font,size,color,bold,
 let nextId = 1;
 let selectedId = null;
 let selectedStyleName = null;
+let karaokeColor = '#e8a33d';
+let karaokeAutoNewLines = false;
 
 const video = document.getElementById('video');
 const audioEl = document.getElementById('audioEl');
@@ -355,6 +377,7 @@ function addLine(start,end,text,styleName){
   const l = { id: nextId++, start: start||0, end: end||(start||0)+2, text: text||"New subtitle", style: styleName||styles[0].name, override:null, karaoke:null };
   lines.push(l);
   lines.sort((a,b)=>a.start-b.start);
+  if(karaokeAutoNewLines && l.text.trim()) autoSplitKaraoke(l);
   return l;
 }
 function selectLine(id){
@@ -430,11 +453,12 @@ YCbCr Matrix: TV.601
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 `;
+  const karaokeAssColor = hexToAssColor(karaokeColor);
   const styleLines = styles.map(s=>{
     const col = hexToAssColor(s.color);
     const outline = s.border ? 2 : 0;
     const shadow = s.border ? 1 : 0;
-    return `Style: ${s.name},${s.font},${s.size},${col},&H000000FF&,&H00000000&,&H00000000&,${s.bold?-1:0},${s.italic?-1:0},0,0,100,100,0,0,1,${outline},${shadow},2,10,10,10,1`;
+    return `Style: ${s.name},${s.font},${s.size},${col},${karaokeAssColor},&H00000000&,&H00000000&,${s.bold?-1:0},${s.italic?-1:0},0,0,100,100,0,0,1,${outline},${shadow},2,10,10,10,1`;
   }).join('\n');
   const evHeader = `\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n`;
   function escapeAssText(s){ return s.replace(/\\/g,'').replace(/\{/g,'').replace(/\}/g,''); }
@@ -725,6 +749,32 @@ function renderStyles(){
 document.getElementById('addStyleBtn').addEventListener('click', ()=>{
   addStyle({ name:'Style'+(styles.length+1) });
   renderStyles(); renderLineEditor();
+});
+
+/* ===================== Global karaoke controls ===================== */
+const karaokeColorInput = document.getElementById('karaokeColorInput');
+const karaokeGlobalStatus = document.getElementById('karaokeGlobalStatus');
+karaokeColorInput.addEventListener('input', function(){
+  karaokeColor = this.value;
+  document.documentElement.style.setProperty('--karaoke-color', karaokeColor);
+  renderOverlay();
+});
+document.getElementById('applyKaraokeAllBtn').addEventListener('click', ()=>{
+  let count = 0;
+  lines.forEach(l=>{
+    if(l.text.trim() && (!l.karaoke || !l.karaoke.length)){
+      autoSplitKaraoke(l);
+      count++;
+    }
+  });
+  renderGrid(); renderKaraokePanel(); renderOverlay(); drawWaveform();
+  karaokeGlobalStatus.textContent = count
+    ? `Applied word timing to ${count} line${count===1?'':'s'}.`
+    : 'All lines already have word timing.';
+  setTimeout(()=>{ karaokeGlobalStatus.textContent=''; }, 4000);
+});
+document.getElementById('karaokeAutoNewChk').addEventListener('change', function(){
+  karaokeAutoNewLines = this.checked;
 });
 
 /* ===================== Overlay rendering (no border by default) ===================== */
