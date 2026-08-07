@@ -186,6 +186,14 @@
   .styleCard .delStyle{margin-left:auto; color:var(--dim); cursor:pointer; font-size:11px;}
   .styleCard .delStyle:hover{color:var(--red);}
   #addStyleBtn{margin:8px 12px;}
+  #addFontRow{display:flex; gap:6px; flex-wrap:wrap; padding:0 12px 10px; border-bottom:1px solid var(--line); margin-bottom:2px;}
+  #addFontRow input[type=text]{
+    flex:1; min-width:120px; background:var(--panel-2); color:var(--text); border:1px solid var(--line);
+    border-radius:4px; padding:5px 7px; font-size:12px; font-family:var(--ui);
+  }
+  #addFontRow button{padding:5px 9px; font-size:12px; white-space:nowrap;}
+  #fontUploadStatus{padding:0 12px; font-size:11px; color:var(--dim); font-family:var(--mono);}
+  #fontUploadStatus:empty{display:none;}
   #karaokeGlobal{padding:10px 12px; display:flex; flex-direction:column; gap:8px; border-bottom:1px solid var(--line);}
   #karaokeGlobal .row{display:flex; align-items:center; gap:8px;}
   #karaokeGlobal label{color:var(--dim); font-size:11px; display:flex; align-items:center; gap:6px;}
@@ -279,6 +287,13 @@
 
   <div id="right">
     <h3>Styles</h3>
+    <div id="addFontRow">
+      <input type="text" id="newFontInput" placeholder="Add a font by name…">
+      <button id="addFontBtn">+ Add</button>
+      <button id="uploadFontBtn" title="Upload a .ttf/.otf/.woff/.woff2 file">⇪ Upload file</button>
+      <input type="file" id="fontFileInput" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" multiple style="display:none">
+    </div>
+    <div id="fontUploadStatus"></div>
     <div id="styleList"></div>
     <button id="addStyleBtn">+ Add style</button>
 
@@ -554,33 +569,57 @@ const FONTS = [
   {family:'Open Sans', google:true}, {family:'Lato', google:true},
   {family:'Fredoka', google:true}
 ];
-const loadedGoogleFonts = new Set();
-function loadFontIfGoogle(family){
-  const f = FONTS.find(x=>x.family===family);
-  if(!f || !f.google || loadedGoogleFonts.has(family)) return;
-  loadedGoogleFonts.add(family);
+const loadedGoogleFontWeights = new Set();
+// Loads each weight as its own <link> — some display fonts (Bebas Neue, Anton, Pacifico...)
+// only ship a 400 weight, and requesting an unsupported weight in the SAME request makes
+// Google's API reject the whole family, so 400 never loads either. Separate requests mean
+// a missing 700 can 404 on its own without taking the working 400 down with it.
+function loadGoogleFontWeight(family, weight){
+  const key = family+'|'+weight;
+  if(loadedGoogleFontWeights.has(key)) return;
+  loadedGoogleFontWeights.add(key);
   const link = document.createElement('link');
   link.rel = 'stylesheet';
-  link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(family).replace(/%20/g,'+')}:wght@400;700&display=swap`;
+  link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(family).replace(/%20/g,'+')}:wght@${weight}&display=swap`;
   document.head.appendChild(link);
 }
+function loadFontIfGoogle(family){
+  const f = FONTS.find(x=>x.family===family);
+  if(!f || !f.google) return;
+  loadGoogleFontWeight(family, 400);
+  loadGoogleFontWeight(family, 700);
+}
+// Adds a new font to the shared library (persists across all font dropdowns) and best-effort
+// loads it from Google Fonts — harmless no-op if it isn't actually a Google Fonts family.
+function addCustomFont(name){
+  name = name.trim();
+  if(!name) return null;
+  let f = FONTS.find(x=>x.family.toLowerCase()===name.toLowerCase());
+  if(!f){ f = {family:name, google:true, custom:true}; FONTS.push(f); }
+  loadFontIfGoogle(f.family);
+  return f.family;
+}
 function fontOptionsHtml(current){
-  const sys = FONTS.filter(f=>!f.google);
-  const goog = FONTS.filter(f=>f.google);
+  const sys = FONTS.filter(f=>!f.google && !f.custom);
+  const goog = FONTS.filter(f=>f.google && !f.custom);
+  const custom = FONTS.filter(f=>f.custom);
   const opt = f => `<option value="${f.family}"${f.family===current?' selected':''}>${f.family}</option>`;
   let extra = '';
   if(current && !FONTS.some(f=>f.family===current)){
     extra = `<option value="${escapeHtml(current)}" selected>${escapeHtml(current)} (custom)</option>`;
   }
-  return extra
+  let html = extra
     + `<optgroup label="System fonts">${sys.map(opt).join('')}</optgroup>`
-    + `<optgroup label="Google Fonts — loads online">${goog.map(opt).join('')}</optgroup>`
-    + `<option value="__custom__">Custom…</option>`;
+    + `<optgroup label="Google Fonts — loads online">${goog.map(opt).join('')}</optgroup>`;
+  if(custom.length) html += `<optgroup label="Your fonts">${custom.map(opt).join('')}</optgroup>`;
+  html += `<option value="__custom__">Custom (one-off)…</option>`;
+  return html;
 }
 // Applies a <select> font choice: prompts for a name on "Custom…", lazy-loads Google fonts, then calls onSet(newFamily|null)
 function applyFontChoice(selectEl, onSet){
   if(selectEl.value === '__custom__'){
     const name = (prompt('Enter a font family name:', '')||'').trim();
+    if(name) addCustomFont(name);
     onSet(name || null);
     return;
   }
@@ -749,6 +788,48 @@ function renderStyles(){
 document.getElementById('addStyleBtn').addEventListener('click', ()=>{
   addStyle({ name:'Style'+(styles.length+1) });
   renderStyles(); renderLineEditor();
+});
+function addFontFromInput(){
+  const input = document.getElementById('newFontInput');
+  const family = addCustomFont(input.value);
+  if(family){ input.value=''; renderStyles(); renderLineEditor(); }
+}
+document.getElementById('addFontBtn').addEventListener('click', addFontFromInput);
+document.getElementById('newFontInput').addEventListener('keydown', function(e){
+  if(e.key==='Enter'){ e.preventDefault(); addFontFromInput(); }
+});
+
+/* ---- Upload a real font file (.ttf/.otf/.woff/.woff2) and register it via the FontFace API ---- */
+function uniqueFontFamilyName(base){
+  let name = base, n = 2;
+  while(FONTS.some(f=>f.family.toLowerCase()===name.toLowerCase())){ name = `${base} (${n++})`; }
+  return name;
+}
+const fontUploadStatus = document.getElementById('fontUploadStatus');
+document.getElementById('uploadFontBtn').addEventListener('click', ()=>{
+  document.getElementById('fontFileInput').click();
+});
+document.getElementById('fontFileInput').addEventListener('change', async function(){
+  const files = Array.from(this.files || []);
+  this.value = '';
+  for(const file of files){
+    const baseName = file.name.replace(/\.[^.]+$/,'').replace(/[_-]+/g,' ').trim() || 'Custom font';
+    const family = uniqueFontFamilyName(baseName);
+    fontUploadStatus.textContent = `Loading "${file.name}"…`;
+    try{
+      const buf = await file.arrayBuffer();
+      const face = new FontFace(family, buf);
+      await face.load();
+      document.fonts.add(face);
+      FONTS.push({family, custom:true, uploaded:true});
+      fontUploadStatus.textContent = `Added "${family}" — pick it from any font dropdown.`;
+    }catch(err){
+      console.error('Font upload failed', err);
+      fontUploadStatus.textContent = `Couldn't load "${file.name}" — is it a valid font file?`;
+    }
+  }
+  renderStyles(); renderLineEditor();
+  setTimeout(()=>{ fontUploadStatus.textContent=''; }, 5000);
 });
 
 /* ===================== Global karaoke controls ===================== */
