@@ -215,6 +215,7 @@
   <div class="sep"></div>
   <button id="exportSrt">Export .srt</button>
   <button id="exportAss">Export .ass</button>
+  <button id="exportVtt" title="WebVTT with per-word timestamps — YouTube reveals words karaoke-style when this is uploaded as a caption track">Export .vtt (YouTube karaoke)</button>
   <div class="sep"></div>
   <button id="addLineBtn" class="primary">+ Line</button>
   <div class="spacer"></div>
@@ -348,6 +349,14 @@ function fmtHMS(sec, msDigits, msSep){
   return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}${msSep}${msStr}`;
 }
 function toAssTime(sec){ return fmtHMS(sec,2,'.'); }
+function toVttTime(sec){
+  if(!isFinite(sec) || sec<0) sec=0;
+  const h = Math.floor(sec/3600);
+  const m = Math.floor((sec%3600)/60);
+  const s = Math.floor(sec%60);
+  const ms = Math.round((sec-Math.floor(sec))*1000);
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(ms).padStart(3,'0')}`;
+}
 function toSrtTime(sec){
   if(!isFinite(sec) || sec<0) sec=0;
   const h = Math.floor(sec/3600);
@@ -524,6 +533,30 @@ function parseSRT(text){
 function exportSRT(){
   const sorted = [...lines].sort((a,b)=>a.start-b.start);
   return sorted.map((l,i)=> `${i+1}\n${toSrtTime(l.start)} --> ${toSrtTime(l.end)}\n${l.text}\n`).join('\n');
+}
+function escapeVtt(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+// WebVTT with inline <timestamp> tags per word. This is the format YouTube's own player
+// understands for progressive, karaoke-style word reveal in captions — upload it as a
+// caption track (YouTube Studio > Subtitles > Upload file > choose .vtt) and it reveals/
+// highlights each word as playback passes its timestamp, using YouTube's native caption
+// renderer (no burned-in video needed). Lines without word timing just export as normal cues.
+function exportVTT(){
+  const sorted = [...lines].sort((a,b)=>a.start-b.start);
+  let out = 'WEBVTT\n\n';
+  sorted.forEach((l,i)=>{
+    out += `${i+1}\n${toVttTime(l.start)} --> ${toVttTime(l.end)}\n`;
+    if(l.karaoke && l.karaoke.length){
+      out += l.karaoke.map((w,wi)=>{
+        const tag = wi===0 ? '' : `<${toVttTime(w.start)}>`;
+        const sep = w.br ? '\n' : (wi<l.karaoke.length-1 ? ' ' : '');
+        return `${tag}${escapeVtt(w.text)}${sep}`;
+      }).join('');
+    } else {
+      out += l.text.split('\n').map(escapeVtt).join('\n');
+    }
+    out += '\n\n';
+  });
+  return out;
 }
 
 /* ===================== Grid rendering ===================== */
@@ -1287,6 +1320,7 @@ function download(filename, content){
 }
 document.getElementById('exportSrt').addEventListener('click', ()=> download('subtitles.srt', exportSRT()));
 document.getElementById('exportAss').addEventListener('click', ()=> download('subtitles.ass', exportASS()));
+document.getElementById('exportVtt').addEventListener('click', ()=> download('subtitles.vtt', exportVTT()));
 
 /* ===================== Init ===================== */
 addLine(0,2,"Welcome to Subtrack — start typing here.", styles[0].name);
