@@ -204,6 +204,9 @@
   #karaokeGlobalStatus{color:var(--dim); font-size:11px; font-family:var(--mono);}
   #zoomRow{display:flex; align-items:center; gap:4px; padding:6px 10px; border-top:1px solid var(--line);}
   #zoomRow span{color:var(--dim); font-size:11px;}
+  #burnStatus{color:var(--karaoke-color); font-size:11px; font-family:var(--mono); margin-right:10px;}
+  #burnStatus:empty{display:none;}
+  #exportBurned:disabled{opacity:.5; cursor:default;}
 </style>
 </head>
 <body>
@@ -215,10 +218,12 @@
   <div class="sep"></div>
   <button id="exportSrt">Export .srt</button>
   <button id="exportAss">Export .ass</button>
-  <button id="exportVtt" title="WebVTT with per-word timestamps — YouTube reveals words karaoke-style when this is uploaded as a caption track">Export .vtt (YouTube karaoke)</button>
+  <button id="exportVtt" title="WebVTT with the active word colored while the full line stays visible — a real caption track, not burned into the video">Export .vtt (YouTube karaoke)</button>
+  <button id="exportBurned" title="Renders the video with the karaoke text (amber highlight, all words visible) drawn directly onto the picture, so it looks right on YouTube">🔥 Render karaoke video</button>
   <div class="sep"></div>
   <button id="addLineBtn" class="primary">+ Line</button>
   <div class="spacer"></div>
+  <span id="burnStatus"></span>
   <span id="filestate">no media loaded</span>
 </div>
 
@@ -535,26 +540,30 @@ function exportSRT(){
   return sorted.map((l,i)=> `${i+1}\n${toSrtTime(l.start)} --> ${toSrtTime(l.end)}\n${l.text}\n`).join('\n');
 }
 function escapeVtt(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-// WebVTT with inline <timestamp> tags per word. This is the format YouTube's own player
-// understands for progressive, karaoke-style word reveal in captions — upload it as a
-// caption track (YouTube Studio > Subtitles > Upload file > choose .vtt) and it reveals/
-// highlights each word as playback passes its timestamp, using YouTube's native caption
-// renderer (no burned-in video needed). Lines without word timing just export as normal cues.
+// WebVTT karaoke via the "one cue per word" technique: each cue re-renders the FULL line
+// text, with only that instant's word wrapped in a <c> color tag. Because consecutive cues
+// replace each other with identical layout, it reads as one static line with a highlight
+// gliding across it — a real, toggleable caption track (not burned into the video), which is
+// how the word-highlight effect on karaoke/cover videos on YouTube is actually done. Lines
+// without word timing just export as normal single cues.
 function exportVTT(){
   const sorted = [...lines].sort((a,b)=>a.start-b.start);
-  let out = 'WEBVTT\n\n';
-  sorted.forEach((l,i)=>{
-    out += `${i+1}\n${toVttTime(l.start)} --> ${toVttTime(l.end)}\n`;
+  let out = `WEBVTT\n\nSTYLE\n::cue(c.hl) {\n  color: ${karaokeColor};\n}\n\n`;
+  let n = 1;
+  sorted.forEach(l=>{
     if(l.karaoke && l.karaoke.length){
-      out += l.karaoke.map((w,wi)=>{
-        const tag = wi===0 ? '' : `<${toVttTime(w.start)}>`;
-        const sep = w.br ? '\n' : (wi<l.karaoke.length-1 ? ' ' : '');
-        return `${tag}${escapeVtt(w.text)}${sep}`;
-      }).join('');
+      l.karaoke.forEach((w,wi)=>{
+        const segStart = w.start;
+        const segEnd = wi < l.karaoke.length-1 ? l.karaoke[wi+1].start : l.end;
+        if(segEnd <= segStart) return;
+        const text = l.karaoke.map((w2,i2)=>
+          i2===wi ? `<c.yellow.hl>${escapeVtt(w2.text)}</c>` : escapeVtt(w2.text)
+        ).join(' ');
+        out += `${n++}\n${toVttTime(segStart)} --> ${toVttTime(segEnd)}\n${text}\n\n`;
+      });
     } else {
-      out += l.text.split('\n').map(escapeVtt).join('\n');
+      out += `${n++}\n${toVttTime(l.start)} --> ${toVttTime(l.end)}\n${l.text.split('\n').map(escapeVtt).join('\n')}\n\n`;
     }
-    out += '\n\n';
   });
   return out;
 }
@@ -1318,6 +1327,163 @@ function download(filename, content){
   a.download = filename;
   document.body.appendChild(a); a.click(); a.remove();
 }
+function downloadBlob(filename, blob){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+/* ---- Burned-in karaoke video export ----
+   YouTube's caption system can only reveal words one-by-one (see exportVTT) — it has no
+   concept of "all words visible, current word highlighted". To get the actual look built in
+   this editor onto YouTube, the text has to be drawn directly onto the video's pixels before
+   upload. This draws each frame (video + karaoke text) onto a canvas in real time, records the
+   composited canvas + original audio with MediaRecorder, and downloads the result as a video
+   file you can upload to YouTube as-is. Needs a Chromium or Firefox browser (captureStream /
+   MediaRecorder); Safari support is unreliable. */
+function pickBurnMimeType(){
+  const candidates = ['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];
+  return candidates.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || 'video/webm';
+}
+function activeLineAt(t){
+  const active = lines.filter(l => t >= l.start && t <= l.end);
+  return active.length ? active[active.length-1] : null;
+}
+function wrapWordsToLines(ctx, words, maxWidth){
+  const out = []; let cur = []; let curW = 0;
+  const spaceW = ctx.measureText(' ').width;
+  words.forEach(w=>{
+    const ww = ctx.measureText(w.text).width;
+    if(cur.length && curW + spaceW + ww > maxWidth){ out.push(cur); cur=[]; curW=0; }
+    cur.push(w); curW += (cur.length>1?spaceW:0) + ww;
+  });
+  if(cur.length) out.push(cur);
+  return out;
+}
+function drawKaraokeFrame(ctx, canvas, t){
+  if(media === video){
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  } else {
+    ctx.fillStyle = '#0d0f12';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  const l = activeLineAt(t);
+  if(!l) return;
+  const st = l.override ? Object.assign({}, getStyle(l.style), l.override) : getStyle(l.style);
+  const scale = canvas.width/960;
+  const fontPx = Math.max(10, st.size*scale);
+  ctx.font = `${st.italic?'italic ':''}${st.bold?'700':'400'} ${fontPx}px "${st.font}", sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  const words = (l.karaoke && l.karaoke.length)
+    ? l.karaoke.map(w=>({text:w.text, active: t>=w.start && t<w.end}))
+    : l.text.split('\n').join(' ').split(/\s+/).filter(Boolean).map(w=>({text:w, active:false}));
+  const maxWidth = canvas.width*0.88;
+  const wrapped = wrapWordsToLines(ctx, words, maxWidth);
+  const lineH = fontPx*1.3;
+  const bottomY = canvas.height*0.9;
+  const startY = bottomY - (wrapped.length-1)*lineH;
+  const spaceW = ctx.measureText(' ').width;
+  wrapped.forEach((row,ri)=>{
+    const y = startY + ri*lineH;
+    const rowWidth = row.reduce((s,w,i)=> s + ctx.measureText(w.text).width + (i>0?spaceW:0), 0);
+    let x = canvas.width/2 - rowWidth/2;
+    ctx.textAlign = 'left';
+    row.forEach(w=>{
+      const ww = ctx.measureText(w.text).width;
+      if(st.border){
+        ctx.lineWidth = Math.max(2, fontPx*0.07);
+        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+        ctx.lineJoin = 'round';
+        ctx.strokeText(w.text, x, y);
+      }
+      ctx.fillStyle = w.active ? karaokeColor : st.color;
+      ctx.fillText(w.text, x, y);
+      x += ww + spaceW;
+    });
+    ctx.textAlign = 'center';
+  });
+}
+async function renderBurnedInVideo(){
+  if(!media || !media.duration || !isFinite(media.duration)){
+    alert('Load a video or audio file first.');
+    return;
+  }
+  if(!window.MediaRecorder || !(media.captureStream || media.mozCaptureStream)){
+    alert('This browser doesn\'t support in-browser video rendering (needs Chrome/Edge/Firefox). Try one of those instead.');
+    return;
+  }
+  const btn = document.getElementById('exportBurned');
+  const status = document.getElementById('burnStatus');
+  btn.disabled = true;
+
+  const canvas = document.createElement('canvas');
+  const isVideo = (media === video);
+  canvas.width = isVideo ? (video.videoWidth || 1280) : 1280;
+  canvas.height = isVideo ? (video.videoHeight || 720) : 720;
+  const ctx = canvas.getContext('2d');
+
+  const wasMuted = media.muted;
+  media.muted = false; // audio must be flowing for captureStream to record it
+  media.pause();
+  media.currentTime = 0;
+  await new Promise(res=>{ const h=()=>{ media.removeEventListener('seeked',h); res(); }; media.addEventListener('seeked', h); });
+  drawKaraokeFrame(ctx, canvas, 0);
+
+  const mimeType = pickBurnMimeType();
+  const canvasStream = canvas.captureStream(30);
+  let audioTracks = [];
+  try{
+    const mediaStream = media.captureStream ? media.captureStream() : media.mozCaptureStream();
+    audioTracks = mediaStream.getAudioTracks();
+  }catch(err){ console.warn('No audio track captured', err); }
+  const combined = new MediaStream([...canvasStream.getVideoTracks(), ...audioTracks]);
+  const recorder = new MediaRecorder(combined, { mimeType, videoBitsPerSecond: 6_000_000 });
+  const chunks = [];
+  recorder.ondataavailable = e => { if(e.data && e.data.size) chunks.push(e.data); };
+
+  const done = new Promise(resolve=>{
+    recorder.onstop = () => {
+      const blob = new Blob(chunks, { type: recorder.mimeType });
+      const ext = recorder.mimeType.includes('mp4') ? 'mp4' : 'webm';
+      downloadBlob(`karaoke-video.${ext}`, blob);
+      resolve();
+    };
+  });
+
+  let raf;
+  function tick(){
+    if(media.paused || media.ended) return;
+    drawKaraokeFrame(ctx, canvas, media.currentTime);
+    status.textContent = `Rendering… ${short(media.currentTime)} / ${short(media.duration)}`;
+    raf = requestAnimationFrame(tick);
+  }
+  const onEnded = () => {
+    cancelAnimationFrame(raf);
+    recorder.stop();
+    media.removeEventListener('ended', onEnded);
+    media.muted = wasMuted;
+  };
+  media.addEventListener('ended', onEnded);
+
+  recorder.start(250);
+  await media.play();
+  raf = requestAnimationFrame(tick);
+
+  await done;
+  status.textContent = 'Done — video downloaded.';
+  btn.disabled = false;
+  setTimeout(()=>{ status.textContent=''; }, 5000);
+}
+document.getElementById('exportBurned').addEventListener('click', ()=>{
+  renderBurnedInVideo().catch(err=>{
+    console.error('Burned-in render failed', err);
+    alert('Rendering failed: ' + err.message);
+    document.getElementById('exportBurned').disabled = false;
+    document.getElementById('burnStatus').textContent = '';
+  });
+});
 document.getElementById('exportSrt').addEventListener('click', ()=> download('subtitles.srt', exportSRT()));
 document.getElementById('exportAss').addEventListener('click', ()=> download('subtitles.ass', exportASS()));
 document.getElementById('exportVtt').addEventListener('click', ()=> download('subtitles.vtt', exportVTT()));
