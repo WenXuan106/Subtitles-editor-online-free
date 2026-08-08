@@ -218,7 +218,8 @@
   <div class="sep"></div>
   <button id="exportSrt">Export .srt</button>
   <button id="exportAss">Export .ass</button>
-  <button id="exportVtt" title="WebVTT where already-spoken words turn bold and grow across the line — a real caption track, not burned into the video">Export .vtt (YouTube karaoke)</button>
+  <button id="exportVtt" title="WebVTT where already-spoken words turn bold + colored and grow across the line — a real caption track, not burned into the video">Export .vtt (YouTube karaoke)</button>
+  <button id="exportYtt" title="YouTube's own internal caption format (srv3/YTT) with real word-level timing — upload via YouTube Studio's Subtitles > Upload file">Export .ytt (YouTube native)</button>
   <button id="exportBurned" title="Renders the video with the karaoke text (amber highlight, all words visible) drawn directly onto the picture, so it looks right on YouTube">🔥 Render karaoke video</button>
   <div class="sep"></div>
   <button id="addLineBtn" class="primary">+ Line</button>
@@ -541,16 +542,30 @@ function exportSRT(){
 }
 function escapeVtt(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 // WebVTT karaoke via the "one cue per word" technique: each cue re-renders the FULL line
-// text, with the words spoken so far wrapped in <b> (growing bold, left to right) and the
-// rest left plain. Because consecutive cues replace each other with identical layout, it
-// reads as one static line with the highlight growing across it — a real, toggleable caption
-// track (not burned into the video). Bold is basic WebVTT every renderer honors; a custom
-// color is layered on top for players that support it, but bold is what actually shows up
-// reliably (this matches how the effect looks on real YouTube karaoke/cover videos). Lines
-// without word timing just export as normal single cues.
+// text, with the words spoken so far wrapped in <b><c> (growing bold + color, left to right)
+// and the rest left plain. Because consecutive cues replace each other with identical layout,
+// it reads as one static line with the highlight growing across it — a real, toggleable
+// caption track (not burned into the video). Bold is basic WebVTT every renderer honors;
+// color uses one of WebVTT's built-in named classes (safer than relying on the custom
+// STYLE block being respected) picked to match your chosen highlight color, plus the exact
+// hex as a bonus layer for players that do honor STYLE. The STYLE block also asks for a
+// transparent cue background to drop the solid caption box — support for that varies by
+// player/browser, so it may or may not be honored on YouTube specifically.
+const VTT_NAMED_COLORS = { white:[255,255,255], black:[0,0,0], red:[255,0,0], green:[0,255,0], blue:[0,0,255], yellow:[255,255,0], magenta:[255,0,255], cyan:[0,255,255] };
+function nearestVttColorName(hex){
+  const h = hex.replace('#','');
+  const r = parseInt(h.substr(0,2),16), g = parseInt(h.substr(2,2),16), b = parseInt(h.substr(4,2),16);
+  let best = 'yellow', bestDist = Infinity;
+  Object.entries(VTT_NAMED_COLORS).forEach(([name,[nr,ng,nb]])=>{
+    const d = (r-nr)**2 + (g-ng)**2 + (b-nb)**2;
+    if(d < bestDist){ bestDist = d; best = name; }
+  });
+  return best;
+}
 function exportVTT(){
   const sorted = [...lines].sort((a,b)=>a.start-b.start);
-  let out = `WEBVTT\n\nSTYLE\n::cue(c.hl) {\n  color: ${karaokeColor};\n}\n\n`;
+  const colorClass = nearestVttColorName(karaokeColor);
+  let out = `WEBVTT\n\nSTYLE\n::cue {\n  background: transparent;\n}\n::cue(c.hl) {\n  color: ${karaokeColor};\n}\n\n`;
   let n = 1;
   sorted.forEach(l=>{
     if(l.karaoke && l.karaoke.length){
@@ -560,7 +575,7 @@ function exportVTT(){
         if(segEnd <= segStart) return;
         const spoken = l.karaoke.slice(0, wi+1).map(x=>escapeVtt(x.text)).join(' ');
         const rest = l.karaoke.slice(wi+1).map(x=>escapeVtt(x.text)).join(' ');
-        const text = `<b><c.yellow.hl>${spoken}</c></b>` + (rest ? ` ${rest}` : '');
+        const text = `<b><c.${colorClass}.hl>${spoken}</c></b>` + (rest ? ` ${rest}` : '');
         out += `${n++}\n${toVttTime(segStart)} --> ${toVttTime(segEnd)}\n${text}\n\n`;
       });
     } else {
@@ -568,6 +583,33 @@ function exportVTT(){
     }
   });
   return out;
+}
+
+/* ---- YTT (YouTube's internal srv3/timedtext format) export ----
+   This is the actual format YouTube's own auto-captions use for real word-level timing —
+   uploads fine through YouTube Studio's Subtitles > Upload file, same as the .vtt/.srt
+   exports. Since it's YouTube's native format, it's the most likely of the three exports to
+   render word-level effects the way YouTube's own player expects. */
+function escapeXml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function toMs(sec){ return Math.max(0, Math.round(sec*1000)); }
+function exportYTT(){
+  const sorted = [...lines].sort((a,b)=>a.start-b.start);
+  const hex = karaokeColor.replace('#','').toUpperCase();
+  let body = '';
+  sorted.forEach(l=>{
+    const startMs = toMs(l.start);
+    const durMs = Math.max(1, toMs(l.end) - startMs);
+    if(l.karaoke && l.karaoke.length){
+      const spans = l.karaoke.map(w=>{
+        const offset = Math.max(0, toMs(w.start) - startMs);
+        return `<s t="${offset}">${escapeXml(w.text)} </s>`;
+      }).join('');
+      body += `<p t="${startMs}" d="${durMs}" p="0">${spans}</p>\n`;
+    } else {
+      body += `<p t="${startMs}" d="${durMs}" p="0">${escapeXml(l.text.replace(/\n/g,' '))}</p>\n`;
+    }
+  });
+  return `<?xml version="1.0" encoding="utf-8" ?>\n<timedtext format="3">\n<head>\n<pen id="0" fc="#FFFFFF" bo="0"/>\n<pen id="1" fc="#${hex}" bo="0"/>\n<ws id="0" ju="2"/>\n<wp id="0" ap="6" ah="50" av="100"/>\n</head>\n<body>\n${body}</body>\n</timedtext>\n`;
 }
 
 /* ===================== Grid rendering ===================== */
@@ -1489,6 +1531,7 @@ document.getElementById('exportBurned').addEventListener('click', ()=>{
 document.getElementById('exportSrt').addEventListener('click', ()=> download('subtitles.srt', exportSRT()));
 document.getElementById('exportAss').addEventListener('click', ()=> download('subtitles.ass', exportASS()));
 document.getElementById('exportVtt').addEventListener('click', ()=> download('subtitles.vtt', exportVTT()));
+document.getElementById('exportYtt').addEventListener('click', ()=> download('subtitles.ytt', exportYTT()));
 
 /* ===================== Init ===================== */
 addLine(0,2,"Welcome to Subtrack — start typing here.", styles[0].name);
