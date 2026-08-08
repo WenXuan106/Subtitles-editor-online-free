@@ -218,7 +218,7 @@
   <div class="sep"></div>
   <button id="exportSrt">Export .srt</button>
   <button id="exportAss">Export .ass</button>
-  <button id="exportVtt" title="WebVTT with the active word colored while the full line stays visible — a real caption track, not burned into the video">Export .vtt (YouTube karaoke)</button>
+  <button id="exportVtt" title="WebVTT where already-spoken words turn bold and grow across the line — a real caption track, not burned into the video">Export .vtt (YouTube karaoke)</button>
   <button id="exportBurned" title="Renders the video with the karaoke text (amber highlight, all words visible) drawn directly onto the picture, so it looks right on YouTube">🔥 Render karaoke video</button>
   <div class="sep"></div>
   <button id="addLineBtn" class="primary">+ Line</button>
@@ -541,10 +541,12 @@ function exportSRT(){
 }
 function escapeVtt(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 // WebVTT karaoke via the "one cue per word" technique: each cue re-renders the FULL line
-// text, with only that instant's word wrapped in a <c> color tag. Because consecutive cues
-// replace each other with identical layout, it reads as one static line with a highlight
-// gliding across it — a real, toggleable caption track (not burned into the video), which is
-// how the word-highlight effect on karaoke/cover videos on YouTube is actually done. Lines
+// text, with the words spoken so far wrapped in <b> (growing bold, left to right) and the
+// rest left plain. Because consecutive cues replace each other with identical layout, it
+// reads as one static line with the highlight growing across it — a real, toggleable caption
+// track (not burned into the video). Bold is basic WebVTT every renderer honors; a custom
+// color is layered on top for players that support it, but bold is what actually shows up
+// reliably (this matches how the effect looks on real YouTube karaoke/cover videos). Lines
 // without word timing just export as normal single cues.
 function exportVTT(){
   const sorted = [...lines].sort((a,b)=>a.start-b.start);
@@ -556,9 +558,9 @@ function exportVTT(){
         const segStart = w.start;
         const segEnd = wi < l.karaoke.length-1 ? l.karaoke[wi+1].start : l.end;
         if(segEnd <= segStart) return;
-        const text = l.karaoke.map((w2,i2)=>
-          i2===wi ? `<c.yellow.hl>${escapeVtt(w2.text)}</c>` : escapeVtt(w2.text)
-        ).join(' ');
+        const spoken = l.karaoke.slice(0, wi+1).map(x=>escapeVtt(x.text)).join(' ');
+        const rest = l.karaoke.slice(wi+1).map(x=>escapeVtt(x.text)).join(' ');
+        const text = `<b><c.yellow.hl>${spoken}</c></b>` + (rest ? ` ${rest}` : '');
         out += `${n++}\n${toVttTime(segStart)} --> ${toVttTime(segEnd)}\n${text}\n\n`;
       });
     } else {
